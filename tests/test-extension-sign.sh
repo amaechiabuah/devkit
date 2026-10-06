@@ -7,6 +7,8 @@ t()   { printf '  %s … ' "$1"; }
 ok()  { echo "ok"; PASS=$((PASS+1)); }
 bad() { echo "FAIL: $1"; FAIL=$((FAIL+1)); }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# The vector tests import the signer as a module. Without this, Python leaves scripts/__pycache__/ in the checkout.
+export PYTHONDONTWRITEBYTECODE=1
 V=tests/vectors; S=scripts/extension-sign.py
 # The vectors' certificate rides in each .sig header, so the valid case's header gives it.
 CERT=$(python3 -c 'import jwt,sys; print(jwt.get_unverified_header(open(sys.argv[1]).read())["cert"])' $V/extension.zip.sig)

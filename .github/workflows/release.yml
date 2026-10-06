@@ -45,6 +45,8 @@ concurrency:
 
 jobs:
   release:
+    # A dispatch from any other branch skips the job, so only main's code ever releases, signs or publishes.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       DUPLO_TARGET: remote
