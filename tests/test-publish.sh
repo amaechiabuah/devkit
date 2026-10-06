@@ -32,10 +32,26 @@ elif ! grep -q "HEADER_FILE_KEY=yes" "$LOG"; then bad "the header file never car
 else ok
 fi
 
-t "a re-run of a finished build changes nothing"
-: > "$LOG"  # Keep S3/CONSOLE state from the prior run. Clear only the log, so this run's own curls are what we check.
+t "a re-run of a finished build stops at the console lookup, with no zip download and no aws call"
+: > "$LOG"  # Keep S3/CONSOLE state from the prior run. Clear only the log, so this run's own calls are what we check.
 OUT=$(publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
-[ $RC = 0 ] && grep -q "already uploaded" <<<"$OUT" && ! grep -q "POST" <<<"$(grep curl "$LOG")" && ok || bad "rc=$RC out=$OUT"
+[ $RC = 0 ] && grep -q "already published" <<<"$OUT" && ! grep -q "^aws " "$LOG" && ! grep -q "POST" <<<"$(grep curl "$LOG")" \
+  && grep -q -- "-p extension.zip.sig" "$LOG" && ! grep -qE -- "-p extension\.zip( |$)" "$LOG" && ok || bad "rc=$RC out=$OUT log=$(cat "$LOG")"
+
+t "a console lookup failure on a finished build fails the job, with no aws call"
+: > "$LOG"
+OUT=$(CONSOLE_FAIL='/versions/\?version=' publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
+[ $RC != 0 ] && grep -q "::error::.*lookup of the version failed" <<<"$OUT" && ! grep -q "^aws " "$LOG" && ok || bad "rc=$RC out=$OUT"
+
+t "an artifact lookup failure on a finished build fails the job, with no aws call"
+: > "$LOG"
+OUT=$(CONSOLE_FAIL='/artifacts/\?sdk_version=' publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
+[ $RC != 0 ] && grep -q "::error::.*lookup of the artifact failed" <<<"$OUT" && ! grep -q "^aws " "$LOG" && ok || bad "rc=$RC out=$OUT"
+
+t "a registered artifact that differs from the release takes the full path and fails there"
+: > "$LOG"; jq '.[0].signature = "OTHERSIG"' "$CONSOLE/artifacts.json" > "$TMP/a.json" && mv "$TMP/a.json" "$CONSOLE/artifacts.json"
+OUT=$(publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
+[ $RC != 0 ] && grep -q "differs" <<<"$OUT" && grep -qE -- "-p extension\.zip( |$)" "$LOG" && ok || bad "rc=$RC out=$OUT"
 
 t "a re-run after only the zip uploaded uploads the signature"
 fresh; cp "$ASSETS/extension.zip" "$S3/bundles_duplo.demo_1.0.0_sdk-1.0.6_extension.zip"
@@ -69,6 +85,10 @@ fresh; OUT=$(GH_DIGEST="sha256:deadbeef" publish_build demo-v1.0.0-sdk-1.0.6 dup
 t "a failed release-digest lookup fails the job before any upload"
 fresh; OUT=$(GH_API_RC=1 publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
 [ $RC != 0 ] && grep -q "::error::" <<<"$OUT" && ! grep -q "put-object" "$LOG" && ok || bad "rc=$RC out=$OUT"
+
+t "an artifact lookup failure on a new build fails the job"
+fresh; OUT=$(CONSOLE_FAIL='/artifacts/\?sdk_version=' publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
+[ $RC != 0 ] && grep -q "::error::.*lookup of the artifact failed" <<<"$OUT" && [ ! -f "$CONSOLE/artifacts.json" ] && ok || bad "rc=$RC out=$OUT"
 
 t "a version lookup that still comes back empty after the POST fails the job"
 fresh; OUT=$(VERSION_VANISHES=1 publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?

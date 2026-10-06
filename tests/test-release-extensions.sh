@@ -174,9 +174,24 @@ git -C "$REPO" add extensions/other/manifest.json; git -C "$REPO" commit -qm oth
 ( p="$(mktemp -d)"; jq '.sdkVersion="1.0.6"' "$REPO/extensions/other/manifest.json" > "$p/manifest.json"
   cd "$p" && zip -qr "$REPO/extensions/other/dist/extension.zip" . )
 OUT="$(GH_VIEW_RC=1 PUBLISHERS_FILE="$TMP/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud \
-  EXTENSION_SIGNING_KEY=k EXTENSION_SIGNING_CERT=c run)"; RC=$?
+  CONSOLE_API_KEY=secret-key EXTENSION_SIGNING_KEY=k EXTENSION_SIGNING_CERT=c run)"; RC=$?
 if [ "$RC" != 0 ] && grep -q "::error::.*gh release view demo-v0.1.0-sdk-1.0.6 failed" <<<"$OUT" \
    && grep -q "release create other-v0.2.0-sdk-1.0.6" "$GH_LOG"
+then ok; else bad "rc=$RC log=$(cat "$GH_LOG") out=$OUT"; fi
+
+t "an allowlisted extension with no CONSOLE_API_KEY fails before signing or releasing"
+new_repo; build_zip 1.0.6
+OUT="$(PUBLISHERS_FILE="$TMP/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud \
+  CONSOLE_API_KEY= EXTENSION_SIGNING_KEY=k EXTENSION_SIGNING_CERT=c run)"; RC=$?
+if [ "$RC" != 0 ] && grep -q "::error::.*extensions/demo.*CONSOLE_API_KEY" <<<"$OUT" && ! grep -q "release create" "$GH_LOG" \
+   && [ ! -f "$REPO/extensions/demo/dist/extension.zip.sig" ]
+then ok; else bad "rc=$RC log=$(cat "$GH_LOG") out=$OUT"; fi
+
+t "an allowlisted, already released extension with no CONSOLE_API_KEY fails before reading its release"
+new_repo; git -C "$REPO" tag demo-v0.1.0-sdk-1.0.6; build_zip 1.0.6
+OUT="$(PUBLISHERS_FILE="$TMP/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud \
+  CONSOLE_API_KEY= EXTENSION_SIGNING_KEY=k EXTENSION_SIGNING_CERT=c run)"; RC=$?
+if [ "$RC" != 0 ] && grep -q "::error::.*CONSOLE_API_KEY" <<<"$OUT" && ! grep -q "release view" "$GH_LOG"
 then ok; else bad "rc=$RC log=$(cat "$GH_LOG") out=$OUT"; fi
 
 t "an existing signed release resumes publishing without re-signing or re-releasing"
@@ -195,7 +210,8 @@ then ok; else bad "rc=$RC out=$OUT"; fi
 
 t "a release cut before signing warns with the bump and does not fail"
 new_repo; git -C "$REPO" tag demo-v0.1.0-sdk-1.0.6; build_zip 1.0.6
-OUT="$(GH_ASSETS=extension.zip PUBLISHERS_FILE="$TMP/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud EXTENSION_SIGNING_KEY=k EXTENSION_SIGNING_CERT=c run)"; RC=$?
+OUT="$(GH_ASSETS=extension.zip PUBLISHERS_FILE="$TMP/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud \
+  CONSOLE_API_KEY=secret-key EXTENSION_SIGNING_KEY=k EXTENSION_SIGNING_CERT=c run)"; RC=$?
 if [ "$RC" = 0 ] && grep -q "::warning::.*no extension.zip.sig.*Bump manifest.version" <<<"$OUT" && ! grep -q "would publish" <<<"$OUT"
 then ok; else bad "rc=$RC out=$OUT"; fi
 

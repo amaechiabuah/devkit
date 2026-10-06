@@ -13,7 +13,11 @@ cat > "$TMP/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 echo "gh $*" >> "$LOG"
 case "$1 $2" in
-  "release download") while [ $# -gt 0 ]; do [ "$1" = -D ] && cp "$ASSETS"/* "$2"/; shift; done ;;
+  "release download")
+    # Copies only the assets named by -p, so a test can tell which ones a run downloaded.
+    pats=(); dest=""
+    while [ $# -gt 0 ]; do case "$1" in -p) pats+=("$2"); shift ;; -D) dest=$2; shift ;; esac; shift; done
+    for p in "${pats[@]}"; do cp "$ASSETS/$p" "$dest"/; done ;;
   "release create") exit "${GH_CREATE_RC:-0}" ;;
   "release view") [ "${GH_VIEW_RC:-0}" = 0 ] || exit "${GH_VIEW_RC}"
                    printf '%s\n' "${GH_ASSETS:-extension.zip,extension.zip.sig}" ;;
@@ -54,6 +58,8 @@ while [ $# -gt 0 ]; do
 done
 if [ -n "$hdrfile" ] && grep -qF -- "$CONSOLE_API_KEY" "$hdrfile" 2>/dev/null
 then echo "HEADER_FILE_KEY=yes" >> "$LOG"; else echo "HEADER_FILE_KEY=no" >> "$LOG"; fi
+# CONSOLE_FAIL, a regex matched against the URL, makes that call fail the way curl --fail-with-body does.
+if [ -n "${CONSOLE_FAIL:-}" ] && [[ "$url" =~ $CONSOLE_FAIL ]]; then echo '{"detail":"server error"}'; exit 22; fi
 case "$method $url" in
   "GET "*"/versions/?version="*) cat "$CONSOLE/versions.json" 2>/dev/null || echo '[]' ;;
   "POST "*"/versions/")

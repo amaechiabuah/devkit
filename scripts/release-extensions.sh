@@ -20,7 +20,8 @@
 # alongside it; a run anywhere else releases the zip alone, as a customer's copy of this workflow carries no Duplo
 # signing credential. Within a Duplo organization, the manifest id also has to be in the extension publisher
 # allowlist (scripts/_publishers.sh) for the repository, or the release still ships signed but scripts/_publish.sh's
-# publish_build is never called for it.
+# publish_build is never called for it. An allowlisted id with no CONSOLE_API_KEY fails before it is signed or
+# released, since that build could be released but never registered.
 #
 # Resuming: a tag that already has a release is never rebuilt, re-signed or re-released. Its own assets, read back
 # with gh release view, decide what happens next: a signed release calls publish_build again so a run that stopped
@@ -93,6 +94,11 @@ for m in extensions/*/manifest.json extension/*/manifest.json extension/manifest
       uuid=""
       echo "::notice::$dir — $id is not in the extension publisher allowlist for $repo, so it is released but not published to the license server."
     fi
+  fi
+  # Registration needs the console key, so a missing one fails here, before a release that could never be registered.
+  if [ -n "$uuid" ] && [ -z "${CONSOLE_API_KEY:-}" ]; then
+    echo "::error::$dir — $id is allowlisted for $repo, but CONSOLE_API_KEY is not set, so it cannot be registered."
+    failed=$((failed+1)); continue
   fi
 
   if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then

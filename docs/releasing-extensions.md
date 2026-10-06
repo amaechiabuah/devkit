@@ -74,8 +74,12 @@ organization variables:
 | `EXTENSION_PUBLISHER_ROLE_ARN` | Organization variable | The AWS role the workflow assumes, by name, to write to the channels bucket |
 
 The workflow maps `CONSOLE_SIGNING_KEY` onto `EXTENSION_SIGNING_KEY` and `CONSOLE_SIGNING_CERT` onto
-`EXTENSION_SIGNING_CERT` before calling the signer. A repository missing either secret or variable fails
-its release job before anything is written, rather than shipping an unsigned build.
+`EXTENSION_SIGNING_CERT` before calling the signer. Each of the four fails the job before anything is
+written. A missing signing key or certificate fails each extension before it is signed or released, rather
+than shipping an unsigned build. An allowlisted extension with no `CONSOLE_API_KEY` fails the same way,
+before it is signed or released, since that build could never be registered. A missing
+`EXTENSION_PUBLISHER_ROLE_ARN` fails the credentials step, which runs before the publish step. Only
+`CONSOLE_SIGNING_KEY` and `CONSOLE_SIGNING_CERT` matter to a repository the allowlist does not name.
 
 The role is only assumed for a repository the allowlist names, through GitHub's OIDC token
 (`permissions: id-token: write`), so a repository that does not publish never needs AWS credentials at all.
@@ -115,10 +119,16 @@ A signed build uploads to `s3://duplo-helpdesk-channels/bundles/[id]/[version]/s
 URL can be overridden with the `BUNDLE_BUCKET` and `CONSOLE_URL` repository variables. Left unset, they
 default to the production bucket and the production console.
 
-Before uploading, the script downloads both assets from the GitHub Release itself, never rebuilding them,
-and recomputes the zip's sha256 locally. When the Release reports its own digest for that asset, the script
-compares the two and fails the job on a mismatch, so a corrupted or substituted download is never uploaded.
-The locally computed hash, not GitHub's, is what gets registered.
+A build that is already finished stops before any download of the zip or any S3 call. The script reads the
+Release's digest for `extension.zip`, downloads only `extension.zip.sig`, and looks up the version and its
+artifact for this SDK in the license server. An artifact whose path, hash and signature match is reported
+as already published. Registration only ever follows both uploads, so a matching artifact means both objects
+are already in the bucket. A failed lookup fails the job. Anything else takes the full path below.
+
+Otherwise, before uploading, the script downloads both assets from the GitHub Release itself, never
+rebuilding them, and recomputes the zip's sha256 locally. When the Release reports its own digest for that
+asset, the script compares the two and fails the job on a mismatch, so a corrupted or substituted download
+is never uploaded. The locally computed hash, not GitHub's, is what gets registered.
 
 Every write from here on is create-only. The upload uses `aws s3api put-object --if-none-match '*'`, so it
 never overwrites an existing key. When that fails with a 412, the script fetches what is already there and
