@@ -38,23 +38,39 @@ console() {
 # publish_build <tag> <id> <version> <sdk> <dir>: upload the Release's zip and .sig, then register both. Reads the
 # assets from the Release so a re-run reuses the bytes already signed and released, with no rebuild.
 publish_build() {
-  local tag=$1 id=$2 version=$3 sdk=$4 dl sha key vuuid out art
+  local tag=$1 id=$2 version=$3 sdk=$4 v dl localsha sha key vuuid out art
   for v in "$id" "$version" "$sdk"; do
     [[ "$v" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "::error::$tag — $v cannot form a bucket key."; return 1; }
   done
   dl="$(mktemp -d)"
-  gh release download "$tag" -p extension.zip -p extension.zip.sig -D "$dl" || { echo "::error::$tag — cannot download its assets."; return 1; }
-  sha="$(gh api "repos/{owner}/{repo}/releases/tags/$tag" --jq '.assets[] | select(.name == "extension.zip") | .digest // ""' | sed 's/^sha256://')"
-  [ -n "$sha" ] || sha="$(shasum -a 256 "$dl/extension.zip" | cut -d' ' -f1)"
+  gh release download "$tag" -p extension.zip -p extension.zip.sig -D "$dl" \
+    || { echo "::error::$tag — cannot download its assets."; rm -rf "$dl"; return 1; }
+  # The local hash is always computed and is what gets registered. GitHub's own digest, when the release carries
+  # one, only confirms the download matches what was actually released, before anything is uploaded or registered.
+  localsha="$(shasum -a 256 "$dl/extension.zip" | cut -d' ' -f1)"
+  sha="$(gh api "repos/{owner}/{repo}/releases/tags/$tag" --jq '.assets[] | select(.name == "extension.zip") | .digest // empty')" \
+    || { echo "::error::$tag — cannot read its release digest."; rm -rf "$dl"; return 1; }
+  sha="${sha#sha256:}"
+  if [ -n "$sha" ]; then
+    [ "$sha" = "$localsha" ] \
+      || { echo "::error::$tag — release digest $sha does not match downloaded extension.zip hash $localsha."; rm -rf "$dl"; return 1; }
+  else
+    sha="$localsha"
+  fi
   key="bundles/$id/$version/sdk-$sdk/extension.zip"
   s3_put_once "$dl/extension.zip" "$key" && s3_put_once "$dl/extension.zip.sig" "$key.sig" || { rm -rf "$dl"; return 1; }
 
-  vuuid="$(console GET "/api/extensions/$uuid/versions/?version=$version" | jq -r '.[0].uuid // empty')"
+  out="$(console GET "/api/extensions/$uuid/versions/?version=$version")" \
+    || { echo "::error::$tag — console lookup of the version failed: $out"; rm -rf "$dl"; return 1; }
+  vuuid="$(jq -r '.[0].uuid // empty' <<<"$out")"
   if [ -z "$vuuid" ]; then
     out="$(console POST "/api/extensions/$uuid/versions/" "$(jq -n --arg v "$version" --arg n "$id $version" '{version: $v, name: $n}')")" \
       || grep -q "already exists" <<<"$out" || { echo "::error::$tag — console refused the version: $out"; rm -rf "$dl"; return 1; }
-    vuuid="$(console GET "/api/extensions/$uuid/versions/?version=$version" | jq -r '.[0].uuid // empty')"
+    out="$(console GET "/api/extensions/$uuid/versions/?version=$version")" \
+      || { echo "::error::$tag — console lookup of the version failed: $out"; rm -rf "$dl"; return 1; }
+    vuuid="$(jq -r '.[0].uuid // empty' <<<"$out")"
   fi
+  [ -n "$vuuid" ] || { echo "::error::$tag — the console has no version uuid for $version after creating it."; rm -rf "$dl"; return 1; }
   art="$(jq -n --arg s "$sdk" --arg p "s3://$bundle_bucket/$key" --arg h "$sha" --rawfile g "$dl/extension.zip.sig" \
     '{sdk_version: $s, s3_path: $p, sha256: $h, signature: $g}')"
   out="$(console GET "/api/extensions/$uuid/versions/$vuuid/artifacts/?sdk_version=$sdk")"

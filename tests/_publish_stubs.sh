@@ -18,6 +18,7 @@ case "$1 $2" in
   "release view") [ "${GH_VIEW_RC:-0}" = 0 ] || exit "${GH_VIEW_RC}"
                    printf '%s\n' "${GH_ASSETS:-extension.zip,extension.zip.sig}" ;;
   "api repos/{owner}/{repo}/releases/tags/"*)
+    [ "${GH_API_RC:-0}" = 0 ] || exit "${GH_API_RC}"
     if [[ "$*" == *'assets[]'* ]]; then printf '%s\n' "${GH_DIGEST-sha256:$ZSHA}"
     else printf '%s\n' "${GH_IMMUTABLE:-true}"; fi ;;
 esac
@@ -37,13 +38,28 @@ EOF
 cat > "$TMP/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 # Console stub: versions and artifacts live as files under $CONSOLE. Prints body then a final line with the code.
-echo "curl $*" | sed -E 's/Api-Key [^ ]+/Api-Key ***/' >> "$LOG"
-url=""; data=""; method=GET
-while [ $# -gt 0 ]; do case "$1" in -X) method=$2; shift ;; --data|-d) data=$2; method=${method/GET/POST}; shift ;; http*) url=$1 ;; esac; shift; done
+# Logs raw argv, unmasked, so a key leaked onto the command line would show up here the way a real process listing
+# or Action log would show it. The key only ever travels in an -H @file argument, so this also records whether this
+# call's header file held it (HEADER_FILE_KEY=yes/no), letting a test prove that without the key itself in the log.
+echo "curl $*" >> "$LOG"
+url=""; data=""; method=GET; hdrfile=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -X) method=$2; shift ;;
+    --data|-d) data=$2; method=${method/GET/POST}; shift ;;
+    -H) case "$2" in @*) hdrfile=${2#@} ;; esac; shift ;;
+    http*) url=$1 ;;
+  esac
+  shift
+done
+if [ -n "$hdrfile" ] && grep -qF -- "$CONSOLE_API_KEY" "$hdrfile" 2>/dev/null
+then echo "HEADER_FILE_KEY=yes" >> "$LOG"; else echo "HEADER_FILE_KEY=no" >> "$LOG"; fi
 case "$method $url" in
   "GET "*"/versions/?version="*) cat "$CONSOLE/versions.json" 2>/dev/null || echo '[]' ;;
-  "POST "*"/versions/") [ -n "${RACE:-}" ] && [ ! -f "$CONSOLE/raced" ] && { touch "$CONSOLE/raced"; echo '[{"uuid":"v-1"}]' > "$CONSOLE/versions.json"; echo '{"version":["1.0.0 already exists for this extension."]}'; exit 22; }
-                         echo '[{"uuid":"v-1"}]' > "$CONSOLE/versions.json"; echo '{"uuid":"v-1"}' ;;
+  "POST "*"/versions/")
+    [ -n "${RACE:-}" ] && [ ! -f "$CONSOLE/raced" ] && { touch "$CONSOLE/raced"; echo '[{"uuid":"v-1"}]' > "$CONSOLE/versions.json"; echo '{"version":["1.0.0 already exists for this extension."]}'; exit 22; }
+    [ -n "${VERSION_VANISHES:-}" ] && { echo '{"uuid":"v-1"}'; exit 0; }
+    echo '[{"uuid":"v-1"}]' > "$CONSOLE/versions.json"; echo '{"uuid":"v-1"}' ;;
   "GET "*"/artifacts/?sdk_version="*) cat "$CONSOLE/artifacts.json" 2>/dev/null || echo '[]' ;;
   "POST "*"/artifacts/") echo "[$data]" > "$CONSOLE/artifacts.json"; echo "$data" ;;
 esac

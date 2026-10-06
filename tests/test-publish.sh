@@ -26,7 +26,11 @@ if [ $RC = 0 ] && [ "$(grep -c "put-object.*--if-none-match \*" "$LOG")" = 2 ] \
 then ok; else bad "rc=$RC out=$OUT"; fi
 
 t "never sets is_published and never logs the key"
-grep -q is_published "$LOG" && bad "is_published sent" || { grep -q secret-key "$LOG" "$TMP"/console/* 2>/dev/null && bad "key logged" || ok; }
+if grep -q is_published "$LOG"; then bad "is_published sent"
+elif grep -q secret-key "$LOG" "$TMP"/console/* 2>/dev/null; then bad "key logged"
+elif ! grep -q "HEADER_FILE_KEY=yes" "$LOG"; then bad "the header file never carried the key, so this test could not prove a leak"
+else ok
+fi
 
 t "a re-run of a finished build changes nothing"
 : > "$LOG"  # Keep S3/CONSOLE state from the prior run. Clear only the log, so this run's own curls are what we check.
@@ -48,12 +52,26 @@ fresh; OUT=$(RACE=1 publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 e
 [ $RC = 0 ] && [ -f "$CONSOLE/artifacts.json" ] && ok || bad "rc=$RC out=$OUT"
 
 t "an existing artifact with a different sha256 fails the job"
-fresh; echo '[{"uuid":"v-1"}]' > "$CONSOLE/versions.json"; echo '[{"sdk_version":"1.0.6","s3_path":"x","sha256":"0000","signature":"y"}]' > "$CONSOLE/artifacts.json"
+fresh; echo '[{"uuid":"v-1"}]' > "$CONSOLE/versions.json"
+echo '[{"sdk_version":"1.0.6","s3_path":"s3://duplo-helpdesk-channels/bundles/duplo.demo/1.0.0/sdk-1.0.6/extension.zip","sha256":"0000","signature":"SIGBYTES"}]' \
+  > "$CONSOLE/artifacts.json"
 OUT=$(publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
 [ $RC != 0 ] && grep -q "differs" <<<"$OUT" && ok || bad "rc=$RC out=$OUT"
 
 t "a missing GitHub digest falls back to hashing the downloaded asset"
 fresh; OUT=$(GH_DIGEST="" publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
 [ $RC = 0 ] && jq -e --arg s "$ZSHA" '.[0].sha256 == $s' "$CONSOLE/artifacts.json" >/dev/null && ok || bad "rc=$RC out=$OUT"
+
+t "a release digest that does not match the downloaded zip fails the job before any upload"
+fresh; OUT=$(GH_DIGEST="sha256:deadbeef" publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
+[ $RC != 0 ] && grep -q "deadbeef" <<<"$OUT" && grep -q "$ZSHA" <<<"$OUT" && ! grep -q "put-object" "$LOG" && ok || bad "rc=$RC out=$OUT"
+
+t "a failed release-digest lookup fails the job before any upload"
+fresh; OUT=$(GH_API_RC=1 publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
+[ $RC != 0 ] && grep -q "::error::" <<<"$OUT" && ! grep -q "put-object" "$LOG" && ok || bad "rc=$RC out=$OUT"
+
+t "a version lookup that still comes back empty after the POST fails the job"
+fresh; OUT=$(VERSION_VANISHES=1 publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
+[ $RC != 0 ] && grep -q "no version uuid" <<<"$OUT" && ok || bad "rc=$RC out=$OUT"
 
 echo; echo "passed $PASS, failed $FAIL"; [ "$FAIL" -eq 0 ]
