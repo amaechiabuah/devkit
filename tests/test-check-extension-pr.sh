@@ -23,9 +23,11 @@ new_repo() {
   git -C "$REPO" switch -q -c pr
 }
 
-# set_manifest <version> <json array of skill folders>
+# set_manifest <version> <json array of skill folders>: also declares a resources entry, so only the test that
+# removes it sees the no-resource warning.
 set_manifest() {
-  jq -n --arg v "$1" --argjson f "$2" '{id:"duplo.demo",name:"Demo",version:$v,skills:[$f[]|{folder:.,isBuiltIn:true}]}' \
+  jq -n --arg v "$1" --argjson f "$2" \
+    '{id:"duplo.demo",name:"Demo",version:$v,skills:[$f[]|{folder:.,isBuiltIn:true}],resources:[{subType:"demo"}]}' \
     > "$D/manifest.json"
 }
 
@@ -37,8 +39,11 @@ bundle() {
   mkdir -p "$D/dist"; rm -f "$D/dist/extension.zip"; ( cd "$p" && zip -qr "$D/dist/extension.zip" . ); rm -rf "$p"
 }
 
+# The script resolves the repo from its own path, as it does when devkit copies it into an extension repo, so its
+# sourced helpers (_publishers.sh, _publish.sh) have to travel with it.
 run() {
   mkdir -p "$REPO/scripts"; cp "$ROOT/scripts/check-extension-pr.sh" "$REPO/scripts/" 2>/dev/null
+  cp "$ROOT"/scripts/_*.sh "$REPO/scripts/" 2>/dev/null
   "$REPO/scripts/check-extension-pr.sh" main 2>&1
 }
 
@@ -81,6 +86,26 @@ t "is quiet about a Native Federation frontend (fe/remoteEntry.json)"
 new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two; bundle remoteEntry.json
 OUT="$(run)"; RC=$?
 if [ "$RC" = 0 ] && ! grep -q "::warning" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
+
+t "warns about an id outside the publisher allowlist in a Duplo org"
+new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two
+jq -n '{schemaVersion:1, publishers:[]}' > "$REPO/pub.json"
+OUT="$(PUBLISHERS_FILE="$REPO/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud run)"
+grep -q "::warning.*allowlist" <<<"$OUT" && ok || bad "$OUT"
+
+t "warns about a manifest that declares no resource"
+new_repo; jq '.version="0.1.1" | .skills=[{folder:"duplo.demo/0.1.1/skills/provision-demo",isBuiltIn:true}] | del(.resources)' \
+  "$D/manifest.json" > "$D/m" && mv "$D/m" "$D/manifest.json"; change two
+grep -q "::warning.*resource" <<<"$(run)" && ok || bad "no resource warning"
+
+t "warns about a bundle over 268435456 bytes"
+new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two; bundle remoteEntry.json
+truncate -s 268435457 "$D/dist/extension.zip"
+grep -q "::warning.*268435456" <<<"$(run)" && ok || bad "no size warning"
+
+t "warns about a version that cannot form a bucket key"
+new_repo; set_manifest '0.1.1 beta' '["duplo.demo/0.1.1 beta/skills/provision-demo"]'; change two
+grep -q "::warning.*cannot form" <<<"$(run)" && ok || bad "no key warning"
 
 echo
 echo "passed $PASS, failed $FAIL"
