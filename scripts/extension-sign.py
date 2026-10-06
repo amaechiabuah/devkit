@@ -8,6 +8,10 @@ for code, so tests/vectors (the console's cross-language vectors) pin both.
 
 The key and certificate come from EXTENSION_SIGNING_KEY and EXTENSION_SIGNING_CERT, never the command line, so ps on
 a shared runner never shows them. EXTENSION_SIGN_NOW overrides the clock for tests.
+
+verify's --root-key substitutes one local root public key for the console's published roots. It exists for tests
+only, and its success line says so, so the output is never mistaken for a verification against the console's real
+roots.
 """
 import argparse, base64, hashlib, json, os, re, sys, time, urllib.request, zipfile
 
@@ -190,7 +194,8 @@ def verify_signature(sig, *, root_keys, sha256, manifest_id, version, sdk_versio
 def console_root_keys(console_url):
     with urllib.request.urlopen(f"{console_url.rstrip('/')}/api/extensions/root-keys/", timeout=30) as r:
         body = json.load(r)
-    rows = body.get("results", body) if isinstance(body, dict) else body
+    rows = body["keys"] if isinstance(body, dict) else body
+    # A retired root stays here with active=false: certificates it issued are still live until they expire.
     return {row["kid"]: row["public_key"] for row in rows if row.get("public_key")}
 
 
@@ -203,7 +208,7 @@ def main(argv=None):
     v = sub.add_parser("verify")
     v.add_argument("zip")
     v.add_argument("sig")
-    v.add_argument("--root-key", action="append", default=[], help="a local root public key PEM, for tests")
+    v.add_argument("--root-key", help="a local root public key PEM, for tests only")
     v.add_argument("--console", default="https://console.duplocloud.com")
     a = p.parse_args(argv)
     if a.cmd == "sign":
@@ -220,7 +225,7 @@ def main(argv=None):
     if a.root_key:
         # A local root key is addressed by the kid the signature's certificate names, so a test root verifies.
         root_kid = jwt.get_unverified_header(jwt.get_unverified_header(sig)["cert"]).get("kid")
-        roots = {root_kid: open(a.root_key[0]).read()}
+        roots = {root_kid: open(a.root_key).read()}
     else:
         roots = console_root_keys(a.console)
     m = built_manifest(a.zip)
@@ -231,7 +236,7 @@ def main(argv=None):
     except SignatureError as exc:
         print(exc.code)
         return 1
-    print("ok")
+    print("ok (against the local root key, not the console's roots)" if a.root_key else "ok")
     return 0
 
 

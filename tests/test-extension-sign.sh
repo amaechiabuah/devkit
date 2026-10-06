@@ -22,10 +22,13 @@ echo "extension-sign:"
 t "verify reproduces every vector case"
 OUT=$(python3 tests/extension_sign_vectors.py 2>&1); [ $? = 0 ] && ok || bad "$OUT"
 
+t "verify parses the console's real root-keys response shape (no network)"
+OUT=$(python3 tests/extension_sign_console_shape.py 2>&1); [ $? = 0 ] && ok || bad "$OUT"
+
 t "a fresh signature verifies against the test root"
 mkzip io.example.hello 1.0.0 1.0.0 "$TMP/a.zip"; OUT=$(sign $V/publisher.pem "$TMP/a.zip")
 OUT2=$(EXTENSION_SIGN_NOW="$NOW" python3 $S verify "$TMP/a.zip" "$TMP/a.zip.sig" --root-key $V/root.pub.pem 2>&1)
-[ $? = 0 ] && ok || bad "$OUT $OUT2"
+[ $? = 0 ] && grep -q "not the console's roots" <<<"$OUT2" && ok || bad "$OUT $OUT2"
 
 t "the .sig has no trailing newline"
 [ "$(tail -c1 "$TMP/a.zip.sig" | od -An -c | tr -d ' ')" != '\n' ] && ok || bad "trailing newline"
