@@ -36,12 +36,14 @@ export EXTENSION_SIGN="$TMP/bin/fake-sign"
 # which ships empty on purpose.
 jq -n '{schemaVersion:1, publishers:[{manifestId:"duplo.demo", repository:"duplocloud/demo", consoleExtension:"00000000-0000-4000-8000-000000000001"}]}' > "$TMP/pub.json"
 
-# new_repo: a git repo holding extensions/demo at version 0.1.0, committed.
+# new_repo: a git repo holding extensions/demo at version 0.1.0, committed. Declares a resources entry, so only the
+# tests that remove it see the no-resource refusal.
 new_repo() {
   REPO="$TMP/repo.$RANDOM"; mkdir -p "$REPO/extensions/demo"
   git -C "$REPO" init -q -b main
   git -C "$REPO" config user.email t@example.com; git -C "$REPO" config user.name t
-  printf '{"id":"duplo.demo","name":"Demo","version":"%s"}\n' "${1:-0.1.0}" > "$REPO/extensions/demo/manifest.json"
+  printf '{"id":"duplo.demo","name":"Demo","version":"%s","resources":[{"subType":"demo"}]}\n' "${1:-0.1.0}" \
+    > "$REPO/extensions/demo/manifest.json"
   echo one > "$REPO/extensions/demo/code.txt"
   git -C "$REPO" add -A; git -C "$REPO" commit -qm init
   export GH_LOG="$REPO.gh.log" LOG="$REPO.gh.log"; : > "$GH_LOG"
@@ -127,7 +129,7 @@ if [ "$RC" != 0 ] && grep -q "release create demo-v0.1.0-sdk-1.0.6" "$GH_LOG"; t
 t "still publishes the other extensions when one fails"
 new_repo; git -C "$REPO" tag demo-v0.1.0-sdk-1.0.6; commit_change two; build_zip 1.0.6
 mkdir -p "$REPO/extensions/other/dist"
-printf '{"id":"duplo.other","name":"Other","version":"0.2.0"}\n' > "$REPO/extensions/other/manifest.json"
+printf '{"id":"duplo.other","name":"Other","version":"0.2.0","resources":[{"subType":"demo"}]}\n' > "$REPO/extensions/other/manifest.json"
 git -C "$REPO" add extensions/other/manifest.json; git -C "$REPO" commit -qm other
 ( p="$(mktemp -d)"; jq '.sdkVersion="1.0.6"' "$REPO/extensions/other/manifest.json" > "$p/manifest.json"
   cd "$p" && zip -qr "$REPO/extensions/other/dist/extension.zip" . )
@@ -167,7 +169,7 @@ then ok; else bad "rc=$RC log=$(cat "$GH_LOG") out=$OUT"; fi
 t "a failed gh release view fails that extension without stopping the run"
 new_repo; git -C "$REPO" tag demo-v0.1.0-sdk-1.0.6; build_zip 1.0.6
 mkdir -p "$REPO/extensions/other/dist"
-printf '{"id":"duplo.other","name":"Other","version":"0.2.0"}\n' > "$REPO/extensions/other/manifest.json"
+printf '{"id":"duplo.other","name":"Other","version":"0.2.0","resources":[{"subType":"demo"}]}\n' > "$REPO/extensions/other/manifest.json"
 git -C "$REPO" add extensions/other/manifest.json; git -C "$REPO" commit -qm other
 ( p="$(mktemp -d)"; jq '.sdkVersion="1.0.6"' "$REPO/extensions/other/manifest.json" > "$p/manifest.json"
   cd "$p" && zip -qr "$REPO/extensions/other/dist/extension.zip" . )
@@ -196,6 +198,19 @@ new_repo; git -C "$REPO" tag demo-v0.1.0-sdk-1.0.6; build_zip 1.0.6
 OUT="$(GH_ASSETS=extension.zip PUBLISHERS_FILE="$TMP/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud EXTENSION_SIGNING_KEY=k EXTENSION_SIGNING_CERT=c run)"; RC=$?
 if [ "$RC" = 0 ] && grep -q "::warning::.*no extension.zip.sig.*Bump manifest.version" <<<"$OUT" && ! grep -q "would publish" <<<"$OUT"
 then ok; else bad "rc=$RC out=$OUT"; fi
+
+t "fails, naming the extension, when the manifest declares no resource"
+new_repo; jq 'del(.resources)' "$REPO/extensions/demo/manifest.json" > "$TMP/m.json" && mv "$TMP/m.json" "$REPO/extensions/demo/manifest.json"
+build_zip 1.0.6
+OUT="$(run)"; RC=$?
+if [ "$RC" != 0 ] && ! grep -q "release create" "$GH_LOG" && grep -q "::error::.*extensions/demo.*resource" <<<"$OUT"
+then ok; else bad "rc=$RC log=$(cat "$GH_LOG") out=$OUT"; fi
+
+t "fails, naming the extension, when the bundle is over the size limit"
+new_repo; build_zip 1.0.6
+OUT="$(EXTENSION_MAX_BYTES=1 run)"; RC=$?
+if [ "$RC" != 0 ] && ! grep -q "release create" "$GH_LOG" && grep -q "::error::.*extensions/demo.*over 1 bytes" <<<"$OUT"
+then ok; else bad "rc=$RC log=$(cat "$GH_LOG") out=$OUT"; fi
 
 echo
 echo "passed $PASS, failed $FAIL"

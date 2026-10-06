@@ -90,22 +90,30 @@ if [ "$RC" = 0 ] && ! grep -q "::warning" <<<"$OUT"; then ok; else bad "rc=$RC o
 t "warns about an id outside the publisher allowlist in a Duplo org"
 new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two
 jq -n '{schemaVersion:1, publishers:[]}' > "$REPO/pub.json"
-OUT="$(PUBLISHERS_FILE="$REPO/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud run)"
-grep -q "::warning.*allowlist" <<<"$OUT" && ok || bad "$OUT"
+OUT="$(PUBLISHERS_FILE="$REPO/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud run)"; RC=$?
+if [ "$RC" = 0 ] && grep -q "::warning.*allowlist" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
 
 t "warns about a manifest that declares no resource"
 new_repo; jq '.version="0.1.1" | .skills=[{folder:"duplo.demo/0.1.1/skills/provision-demo",isBuiltIn:true}] | del(.resources)' \
   "$D/manifest.json" > "$D/m" && mv "$D/m" "$D/manifest.json"; change two
-grep -q "::warning.*resource" <<<"$(run)" && ok || bad "no resource warning"
+OUT="$(run)"; RC=$?
+if [ "$RC" = 0 ] && grep -q "::warning.*resource" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
 
 t "warns about a bundle over 268435456 bytes"
 new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two; bundle remoteEntry.json
 truncate -s 268435457 "$D/dist/extension.zip"
-grep -q "::warning.*268435456" <<<"$(run)" && ok || bad "no size warning"
+OUT="$(run)"; RC=$?
+if [ "$RC" = 0 ] && grep -q "::warning.*268435456" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
 
 t "warns about a version that cannot form a bucket key"
 new_repo; set_manifest '0.1.1 beta' '["duplo.demo/0.1.1 beta/skills/provision-demo"]'; change two
-grep -q "::warning.*cannot form" <<<"$(run)" && ok || bad "no key warning"
+OUT="$(run)"; RC=$?
+if [ "$RC" = 0 ] && grep -q "::warning.*cannot form" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
+
+t "warns about a non-semver version in a Duplo org"
+new_repo; set_manifest 'v1.0.0' '["duplo.demo/v1.0.0/skills/provision-demo"]'; change two
+OUT="$(GITHUB_REPOSITORY_OWNER=duplocloud run)"; RC=$?
+if [ "$RC" = 0 ] && grep -q "::warning.*not strict semver" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
 
 echo
 echo "passed $PASS, failed $FAIL"

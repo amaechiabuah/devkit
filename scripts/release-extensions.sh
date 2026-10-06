@@ -27,6 +27,11 @@
 # between releasing and publishing still finishes, and a release that predates signing stays flagged rather than
 # retrofitted, since a tag's assets can't gain one after the fact. A new manifest.version is the only way forward.
 #
+# Two checks run for every build, in every organization, right after confirming the build produced a zip. A missing
+# resources entry refuses the build, and so does a bundle over EXTENSION_MAX_BYTES bytes (default 268435456). Either
+# failure counts against just that extension and the run moves on, matching scripts/check-extension-pr.sh's PR-time
+# warning for the same two rules.
+#
 # Usage: ./scripts/release-extensions.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -39,6 +44,7 @@ shopt -s nullglob
 publishers_file="${PUBLISHERS_FILE:-$publishers_file}"
 sign_cmd="${EXTENSION_SIGN:-python3 $(dirname "$0")/extension-sign.py}"
 repo="${GITHUB_REPOSITORY:-}"
+max_bytes="${EXTENSION_MAX_BYTES:-268435456}"
 
 sha="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 published=0; skipped=0; failed=0
@@ -50,6 +56,14 @@ for m in extensions/*/manifest.json extension/*/manifest.json extension/manifest
   if [ ! -f "$zip" ]; then
     echo "::warning::$dir — no dist/extension.zip (build produced nothing); skipping."
     continue
+  fi
+  if ! jq -e '(.resources // []) | length > 0' "$m" >/dev/null; then
+    echo "::error::$dir — the manifest declares no resource, so the host refuses the bundle."
+    failed=$((failed+1)); continue
+  fi
+  if [ "$(wc -c < "$zip")" -gt "$max_bytes" ]; then
+    echo "::error::$dir — the bundle is over $max_bytes bytes, which the release job refuses to publish."
+    failed=$((failed+1)); continue
   fi
   name="$(jq -r '.name // .id' "$m")"
   version="$(jq -r '.version' "$m")"
