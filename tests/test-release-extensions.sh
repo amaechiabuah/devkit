@@ -12,27 +12,16 @@ bad() { echo "FAIL: $1"; FAIL=$((FAIL+1)); }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-# Stub gh: every call, including every asset name on a `release create`, is appended to $GH_LOG. `api` answers the
-# release's immutable flag from $GH_IMMUTABLE, and `release view ... --json assets` answers the asset list a resumed
-# publish reads back, from $GH_ASSETS (default both the zip and its signature), or fails outright per $GH_VIEW_RC.
+# Fakes for gh (release lifecycle, plus the asset download and digest lookup publish_build needs), aws and curl,
+# shared with tests/test-publish.sh via tests/_publish_stubs.sh. `api` answers the release's immutable flag from
+# $GH_IMMUTABLE, unless the --jq expression is publish_build's digest lookup. `release view ... --json assets`
+# answers the asset list a resumed publish reads back, from $GH_ASSETS (default both the zip and its signature), or
+# fails outright per $GH_VIEW_RC. Every call is appended to $LOG, aliased below to $GH_LOG so existing assertions
+# against $GH_LOG keep working.
 mkdir -p "$TMP/bin"
-cat > "$TMP/bin/gh" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$GH_LOG"
-case "$1" in
-  api) printf '%s\n' "${GH_IMMUTABLE:-true}" ;;
-  release)
-    case "$2" in
-      create) exit "${GH_CREATE_RC:-0}" ;;
-      view) [ "${GH_VIEW_RC:-0}" = 0 ] || exit "${GH_VIEW_RC}"
-            printf '%s\n' "${GH_ASSETS:-extension.zip,extension.zip.sig}" ;;
-    esac
-    ;;
-esac
-exit 0
-EOF
-chmod +x "$TMP/bin/gh"
 export PATH="$TMP/bin:$PATH"
+# shellcheck source=tests/_publish_stubs.sh
+. "$ROOT/tests/_publish_stubs.sh"
 
 # Stub signer the release script finds through EXTENSION_SIGN: writes ZIP.sig unless FAKE_SIGN_RC says to refuse.
 cat > "$TMP/bin/fake-sign" <<'EOF'
@@ -55,7 +44,7 @@ new_repo() {
   printf '{"id":"duplo.demo","name":"Demo","version":"%s"}\n' "${1:-0.1.0}" > "$REPO/extensions/demo/manifest.json"
   echo one > "$REPO/extensions/demo/code.txt"
   git -C "$REPO" add -A; git -C "$REPO" commit -qm init
-  export GH_LOG="$REPO.gh.log"; : > "$GH_LOG"
+  export GH_LOG="$REPO.gh.log" LOG="$REPO.gh.log"; : > "$GH_LOG"
 }
 
 # build_zip [sdkVersion]: the dist/extension.zip build-extension.sh would leave, with sdkVersion stamped.
@@ -190,9 +179,17 @@ then ok; else bad "rc=$RC log=$(cat "$GH_LOG") out=$OUT"; fi
 
 t "an existing signed release resumes publishing without re-signing or re-releasing"
 new_repo; git -C "$REPO" tag demo-v0.1.0-sdk-1.0.6; build_zip 1.0.6
-OUT="$(PUBLISHERS_FILE="$TMP/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud EXTENSION_SIGNING_KEY=k EXTENSION_SIGNING_CERT=c run)"; RC=$?
+# The release's own assets (never the local dist/ bundle) are what a resumed publish reads, so plant them separately.
+mkdir -p "$TMP/assets.19" "$TMP/s3.19" "$TMP/console.19"
+printf 'ZIPBYTES' > "$TMP/assets.19/extension.zip"; printf 'SIGBYTES' > "$TMP/assets.19/extension.zip.sig"
+ZSHA19="$(shasum -a 256 "$TMP/assets.19/extension.zip" | cut -d' ' -f1)"
+OUT="$(ASSETS="$TMP/assets.19" S3="$TMP/s3.19" CONSOLE="$TMP/console.19" ZSHA="$ZSHA19" CONSOLE_API_KEY=secret-key \
+  PUBLISHERS_FILE="$TMP/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud \
+  EXTENSION_SIGNING_KEY=k EXTENSION_SIGNING_CERT=c run)"; RC=$?
 if [ "$RC" = 0 ] && ! grep -q "release create" "$GH_LOG" && [ ! -f "$REPO/extensions/demo/dist/extension.zip.sig" ] \
-   && grep -q "would publish demo-v0.1.0-sdk-1.0.6" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
+   && grep -q "registered demo-v0.1.0-sdk-1.0.6" <<<"$OUT" \
+   && jq -e --arg s "$ZSHA19" '.[0] | .sha256 == $s and .signature == "SIGBYTES"' "$TMP/console.19/artifacts.json" >/dev/null
+then ok; else bad "rc=$RC out=$OUT"; fi
 
 t "a release cut before signing warns with the bump and does not fail"
 new_repo; git -C "$REPO" tag demo-v0.1.0-sdk-1.0.6; build_zip 1.0.6

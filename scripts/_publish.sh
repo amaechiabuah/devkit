@@ -6,5 +6,65 @@
 # duplo_org: exit 0 when this run belongs to one of Duplo's organizations.
 duplo_org() { case "${GITHUB_REPOSITORY_OWNER:-}" in duplocloud|duplocloud-internal) return 0 ;; *) return 1 ;; esac; }
 
-# publish_build <tag> <id> <version> <sdk> <dir>: upload and register one released build (Task 8).
-publish_build() { echo "==> would publish $1"; }
+bundle_bucket="${BUNDLE_BUCKET:-duplo-helpdesk-channels}"
+console_url="${CONSOLE_URL:-https://console.duplocloud.com}"
+
+# s3_put_once <file> <key>: create-only upload. A 412 compares bytes, identical counting as already uploaded.
+s3_put_once() {
+  local file=$1 key=$2 out have
+  if out="$(aws s3api put-object --bucket "$bundle_bucket" --key "$key" --body "$file" --if-none-match '*' 2>&1)"; then
+    echo "==> uploaded s3://$bundle_bucket/$key"; return 0
+  fi
+  if ! grep -qE 'PreconditionFailed|\(412\)' <<<"$out"; then echo "::error::upload of $key failed: $out"; return 1; fi
+  have="$(mktemp)"
+  aws s3api get-object --bucket "$bundle_bucket" --key "$key" "$have" >/dev/null || { rm -f "$have"; return 1; }
+  if cmp -s "$file" "$have"; then rm -f "$have"; echo "==> $key already uploaded, identical bytes"; return 0; fi
+  rm -f "$have"; echo "::error::s3://$bundle_bucket/$key already holds different bytes. A published build is never replaced."
+  return 1
+}
+
+# console <method> <path> [json]: one console API call. The key reaches curl through a header file, never argv.
+console() {
+  local hdr body
+  hdr="$(mktemp)"; chmod 600 "$hdr"; printf 'Authorization: Api-Key %s\n' "$CONSOLE_API_KEY" > "$hdr"
+  if [ -n "${3:-}" ]; then
+    body="$(curl -sS --fail-with-body -X "$1" -H @"$hdr" -H 'Content-Type: application/json' --data "$3" "$console_url$2")"
+  else
+    body="$(curl -sS --fail-with-body -X "$1" -H @"$hdr" "$console_url$2")"
+  fi
+  local rc=$?; rm -f "$hdr"; printf '%s' "$body"; return $rc
+}
+
+# publish_build <tag> <id> <version> <sdk> <dir>: upload the Release's zip and .sig, then register both. Reads the
+# assets from the Release so a re-run reuses the bytes already signed and released, with no rebuild.
+publish_build() {
+  local tag=$1 id=$2 version=$3 sdk=$4 dl sha key vuuid out art
+  for v in "$id" "$version" "$sdk"; do
+    [[ "$v" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "::error::$tag — $v cannot form a bucket key."; return 1; }
+  done
+  dl="$(mktemp -d)"
+  gh release download "$tag" -p extension.zip -p extension.zip.sig -D "$dl" || { echo "::error::$tag — cannot download its assets."; return 1; }
+  sha="$(gh api "repos/{owner}/{repo}/releases/tags/$tag" --jq '.assets[] | select(.name == "extension.zip") | .digest // ""' | sed 's/^sha256://')"
+  [ -n "$sha" ] || sha="$(shasum -a 256 "$dl/extension.zip" | cut -d' ' -f1)"
+  key="bundles/$id/$version/sdk-$sdk/extension.zip"
+  s3_put_once "$dl/extension.zip" "$key" && s3_put_once "$dl/extension.zip.sig" "$key.sig" || { rm -rf "$dl"; return 1; }
+
+  vuuid="$(console GET "/api/extensions/$uuid/versions/?version=$version" | jq -r '.[0].uuid // empty')"
+  if [ -z "$vuuid" ]; then
+    out="$(console POST "/api/extensions/$uuid/versions/" "$(jq -n --arg v "$version" --arg n "$id $version" '{version: $v, name: $n}')")" \
+      || grep -q "already exists" <<<"$out" || { echo "::error::$tag — console refused the version: $out"; rm -rf "$dl"; return 1; }
+    vuuid="$(console GET "/api/extensions/$uuid/versions/?version=$version" | jq -r '.[0].uuid // empty')"
+  fi
+  art="$(jq -n --arg s "$sdk" --arg p "s3://$bundle_bucket/$key" --arg h "$sha" --rawfile g "$dl/extension.zip.sig" \
+    '{sdk_version: $s, s3_path: $p, sha256: $h, signature: $g}')"
+  out="$(console GET "/api/extensions/$uuid/versions/$vuuid/artifacts/?sdk_version=$sdk")"
+  if [ "$(jq 'length' <<<"$out")" -gt 0 ]; then
+    if jq -e --argjson a "$art" '.[0] | .s3_path == $a.s3_path and (.sha256 | ascii_downcase) == $a.sha256 and .signature == $a.signature' <<<"$out" >/dev/null; then
+      echo "==> $tag already registered"; rm -rf "$dl"; return 0
+    fi
+    echo "::error::$tag — the console already holds a build for SDK $sdk that differs from this release."; rm -rf "$dl"; return 1
+  fi
+  out="$(console POST "/api/extensions/$uuid/versions/$vuuid/artifacts/" "$art")" \
+    || { echo "::error::$tag — console refused the artifact: $out"; rm -rf "$dl"; return 1; }
+  echo "==> registered $tag in the license server (unpublished)"; rm -rf "$dl"
+}
