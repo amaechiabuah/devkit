@@ -6,6 +6,7 @@ PASS=0; FAIL=0
 t()   { printf '  %s … ' "$1"; }
 ok()  { echo "ok"; PASS=$((PASS+1)); }
 bad() { echo "FAIL: $1"; FAIL=$((FAIL+1)); }
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 . ./scripts/_publishers.sh
 REAL=.github/extension-publishers.json
 FIXTURE=tests/fixtures/extension-publishers.json
@@ -35,5 +36,27 @@ t "an id mapped to another repository is refused"
 ! publisher_extension_uuid "$id" "someone/else" >/dev/null && ok || bad "accepted another repo"
 t "an unknown id is refused"
 ! publisher_extension_uuid "duplo.nope" "$repo" >/dev/null && ok || bad "accepted unknown id"
+
+# Exit-status contract: callers key off exit 1 meaning "not allowed to publish." jq -e itself exits 4 when its
+# filter produces no output at all, so the function must capture the lookup rather than pass that code through.
+t "an unknown id exits exactly 1"
+publisher_extension_uuid "duplo.nope" "$repo" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && ok || bad "exit $rc"
+t "a wrong repository exits exactly 1"
+publisher_extension_uuid "$id" "someone/else" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && ok || bad "exit $rc"
+publishers_file="$REAL"
+t "the empty real file exits exactly 1"
+publisher_extension_uuid "duplo.anything" "duplocloud/anything" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && ok || bad "exit $rc"
+publishers_file="$TMP/missing.json"
+t "a missing file exits exactly 1"
+publisher_extension_uuid "duplo.anything" "duplocloud/anything" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && ok || bad "exit $rc"
+printf '{not valid json' > "$TMP/malformed.json"
+publishers_file="$TMP/malformed.json"
+t "a malformed allowlist file exits exactly 1, not a jq error code"
+publisher_extension_uuid "duplo.anything" "duplocloud/anything" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && ok || bad "exit $rc"
 
 echo; echo "passed $PASS, failed $FAIL"; [ "$FAIL" -eq 0 ]

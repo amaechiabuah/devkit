@@ -9,9 +9,14 @@
 publishers_file=".github/extension-publishers.json"
 
 # publisher_extension_uuid <manifest-id> <org/repo>: the console extension UUID when the allowlist maps the id to
-# that repository, else nothing and exit 1.
+# that repository, else nothing and exit 1. The lookup is captured rather than let `jq -e` report its own exit
+# status, because that status is not 1 for every miss (no match, an empty list and a malformed file each land on a
+# different jq exit code) and callers key off exit 1 specifically to mean "not allowed to publish."
 publisher_extension_uuid() {
   [ -f "$publishers_file" ] || return 1
-  jq -er --arg id "$1" --arg repo "$2" \
-    '.publishers[] | select(.manifestId == $id and .repository == $repo) | .consoleExtension' "$publishers_file"
+  local uuid
+  uuid="$(jq -r --arg id "$1" --arg repo "$2" \
+    '.publishers[] | select(.manifestId == $id and .repository == $repo) | .consoleExtension' "$publishers_file")" || true
+  [ -n "$uuid" ] || return 1
+  printf '%s\n' "$uuid"
 }
