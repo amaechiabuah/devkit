@@ -14,7 +14,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 # Stub gh: every call, including every asset name on a `release create`, is appended to $GH_LOG. `api` answers the
 # release's immutable flag from $GH_IMMUTABLE, and `release view ... --json assets` answers the asset list a resumed
-# publish reads back, from $GH_ASSETS (default both the zip and its signature).
+# publish reads back, from $GH_ASSETS (default both the zip and its signature), or fails outright per $GH_VIEW_RC.
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -24,7 +24,8 @@ case "$1" in
   release)
     case "$2" in
       create) exit "${GH_CREATE_RC:-0}" ;;
-      view) printf '%s\n' "${GH_ASSETS:-extension.zip,extension.zip.sig}" ;;
+      view) [ "${GH_VIEW_RC:-0}" = 0 ] || exit "${GH_VIEW_RC}"
+            printf '%s\n' "${GH_ASSETS:-extension.zip,extension.zip.sig}" ;;
     esac
     ;;
 esac
@@ -170,8 +171,22 @@ if [ "$RC" != 0 ] && ! grep -q "release create" "$GH_LOG"; then ok; else bad "rc
 t "a Duplo-org repository outside the allowlist signs and releases, then skips publishing with a notice"
 new_repo; build_zip 1.0.6
 OUT="$(GITHUB_REPOSITORY=duplocloud/not-listed GITHUB_REPOSITORY_OWNER=duplocloud EXTENSION_SIGNING_KEY=k EXTENSION_SIGNING_CERT=c run)"; RC=$?
-if [ "$RC" = 0 ] && grep -q "::notice::.*allowlist" <<<"$OUT" && ! grep -q "would publish" <<<"$OUT"
-then ok; else bad "rc=$RC out=$OUT"; fi
+if [ "$RC" = 0 ] && grep -q "::notice::.*allowlist" <<<"$OUT" && ! grep -q "would publish" <<<"$OUT" \
+   && grep -q "release create demo-v0.1.0-sdk-1.0.6 extensions/demo/dist/extension.zip extensions/demo/dist/extension.zip.sig --target" "$GH_LOG"
+then ok; else bad "rc=$RC log=$(cat "$GH_LOG") out=$OUT"; fi
+
+t "a failed gh release view fails that extension without stopping the run"
+new_repo; git -C "$REPO" tag demo-v0.1.0-sdk-1.0.6; build_zip 1.0.6
+mkdir -p "$REPO/extensions/other/dist"
+printf '{"id":"duplo.other","name":"Other","version":"0.2.0"}\n' > "$REPO/extensions/other/manifest.json"
+git -C "$REPO" add extensions/other/manifest.json; git -C "$REPO" commit -qm other
+( p="$(mktemp -d)"; jq '.sdkVersion="1.0.6"' "$REPO/extensions/other/manifest.json" > "$p/manifest.json"
+  cd "$p" && zip -qr "$REPO/extensions/other/dist/extension.zip" . )
+OUT="$(GH_VIEW_RC=1 PUBLISHERS_FILE="$TMP/pub.json" GITHUB_REPOSITORY=duplocloud/demo GITHUB_REPOSITORY_OWNER=duplocloud \
+  EXTENSION_SIGNING_KEY=k EXTENSION_SIGNING_CERT=c run)"; RC=$?
+if [ "$RC" != 0 ] && grep -q "::error::.*gh release view demo-v0.1.0-sdk-1.0.6 failed" <<<"$OUT" \
+   && grep -q "release create other-v0.2.0-sdk-1.0.6" "$GH_LOG"
+then ok; else bad "rc=$RC log=$(cat "$GH_LOG") out=$OUT"; fi
 
 t "an existing signed release resumes publishing without re-signing or re-releasing"
 new_repo; git -C "$REPO" tag demo-v0.1.0-sdk-1.0.6; build_zip 1.0.6

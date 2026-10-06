@@ -83,7 +83,10 @@ for m in extensions/*/manifest.json extension/*/manifest.json extension/manifest
 
   if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
     if [ -n "$uuid" ]; then
-      assets="$(gh release view "$tag" --json assets --jq '[.assets[].name] | join(",")')"
+      if ! assets="$(gh release view "$tag" --json assets --jq '[.assets[].name] | join(",")')"; then
+        echo "::error::$dir — gh release view $tag failed."
+        failed=$((failed+1)); continue
+      fi
       if [[ ",$assets," != *",extension.zip.sig,"* ]]; then
         echo "::warning::$tag was released with no extension.zip.sig, and an immutable release cannot gain one. Bump manifest.version to publish this extension."
         skipped=$((skipped+1)); continue
