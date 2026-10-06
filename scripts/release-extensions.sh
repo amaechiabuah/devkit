@@ -15,10 +15,30 @@
 # Needs the repo's tags and the history they point at (actions/checkout with fetch-depth: 0), gh authenticated with
 # contents: write, jq and unzip. GITHUB_SHA is the built commit; it defaults to HEAD.
 #
+# Signing: a run in one of Duplo's own organizations (duplo_org in scripts/_publish.sh) always signs the built zip
+# with EXTENSION_SIGNING_KEY and EXTENSION_SIGNING_CERT before the release is created, and ships extension.zip.sig
+# alongside it; a run anywhere else releases the zip alone, as a customer's copy of this workflow carries no Duplo
+# signing credential. Within a Duplo organization, the manifest id also has to be in the extension publisher
+# allowlist (scripts/_publishers.sh) for the repository, or the release still ships signed but scripts/_publish.sh's
+# publish_build is never called for it.
+#
+# Resuming: a tag that already has a release is never rebuilt, re-signed or re-released. Its own assets, read back
+# with gh release view, decide what happens next: a signed release calls publish_build again so a run that stopped
+# between releasing and publishing still finishes, and a release that predates signing stays flagged rather than
+# retrofitted, since a tag's assets can't gain one after the fact. A new manifest.version is the only way forward.
+#
 # Usage: ./scripts/release-extensions.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 shopt -s nullglob
+
+# shellcheck source=scripts/_publishers.sh
+. "$(dirname "$0")/_publishers.sh"
+# shellcheck source=scripts/_publish.sh
+. "$(dirname "$0")/_publish.sh"
+publishers_file="${PUBLISHERS_FILE:-$publishers_file}"
+sign_cmd="${EXTENSION_SIGN:-python3 $(dirname "$0")/extension-sign.py}"
+repo="${GITHUB_REPOSITORY:-}"
 
 sha="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 published=0; skipped=0; failed=0
@@ -52,15 +72,44 @@ for m in extensions/*/manifest.json extension/*/manifest.json extension/manifest
     failed=$((failed+1)); continue
   fi
 
+  id="$(unzip -p "$zip" manifest.json | jq -r '.id')"
+  uuid=""
+  if duplo_org; then
+    if ! uuid="$(publisher_extension_uuid "$id" "$repo")"; then
+      uuid=""
+      echo "::notice::$dir — $id is not in the extension publisher allowlist for $repo, so it is released but not published to the license server."
+    fi
+  fi
+
   if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-    echo "==> $tag already released — skipping (bump manifest.version to publish a new one)."
+    if [ -n "$uuid" ]; then
+      assets="$(gh release view "$tag" --json assets --jq '[.assets[].name] | join(",")')"
+      if [[ ",$assets," != *",extension.zip.sig,"* ]]; then
+        echo "::warning::$tag was released with no extension.zip.sig, and an immutable release cannot gain one. Bump manifest.version to publish this extension."
+        skipped=$((skipped+1)); continue
+      fi
+      publish_build "$tag" "$id" "$version" "$sdk" "$dir" || { failed=$((failed+1)); continue; }
+    else
+      echo "==> $tag already released — skipping (bump manifest.version to publish a new one)."
+    fi
     skipped=$((skipped+1)); continue
   fi
 
+  assets=("$zip")
+  if duplo_org; then
+    if [ -z "${EXTENSION_SIGNING_KEY:-}" ] || [ -z "${EXTENSION_SIGNING_CERT:-}" ]; then
+      echo "::error::$dir — EXTENSION_SIGNING_KEY and EXTENSION_SIGNING_CERT must be set in $GITHUB_REPOSITORY_OWNER. Duplo releases are always signed."
+      failed=$((failed+1)); continue
+    fi
+    # shellcheck disable=SC2086 # sign_cmd is a command plus its interpreter
+    if ! $sign_cmd sign "$zip"; then failed=$((failed+1)); continue; fi
+    assets+=("$zip.sig")
+  fi
+
   echo "==> Publishing release $tag ($name $version, SDK $sdk)"
-  if ! gh release create "$tag" "$zip" --target "$sha" \
+  if ! gh release create "$tag" "${assets[@]}" --target "$sha" \
       --title "$name $version (SDK $sdk)" \
-      --notes "Automated release of $name v$version from $slug, built against host SDK $sdk (extension.zip attached)."; then
+      --notes "Automated release of $name v$version from $slug, built against host SDK $sdk."; then
     echo "::error::$dir — gh release create $tag failed."
     failed=$((failed+1)); continue
   fi
@@ -70,6 +119,10 @@ for m in extensions/*/manifest.json extension/*/manifest.json extension/manifest
   immutable="$(gh api "repos/{owner}/{repo}/releases/tags/$tag" --jq '.immutable' 2>/dev/null || true)"
   if [ "$immutable" != true ]; then
     echo "::warning::$tag landed mutable (immutable=${immutable:-unknown}). A repository admin turns on immutable releases under Settings → General → Releases; releases published before that stay mutable."
+  fi
+
+  if [ -n "$uuid" ]; then
+    publish_build "$tag" "$id" "$version" "$sdk" "$dir" || failed=$((failed+1))
   fi
 done
 
