@@ -1,7 +1,8 @@
 # Releasing extensions
 
 `.github/workflows/release.yml` runs on every push to `main` and on a manual dispatch. For each
-`extensions/*/manifest.json`, it builds the bundle and hands it to `scripts/release-extensions.sh`, which
+`extensions/*/manifest.json`, plus the single-extension layouts `extension/manifest.json` and
+`extension/*/manifest.json`, it builds the bundle and hands it to `scripts/release-extensions.sh`, which
 publishes one GitHub Release per build. This page covers what that run does, in any organization, and the
 extra steps that apply only inside DuploCloud's own organizations, `duplocloud` and `duplocloud-internal`.
 
@@ -85,7 +86,12 @@ The role is only assumed for a repository the allowlist names, through GitHub's 
 repository and one console extension:
 
 ```json
-{ "manifestId": "duplo.extensions.your-extension", "repository": "duplocloud/your-repo", "consoleExtension": "[console extension uuid]" }
+{
+  "schemaVersion": 1,
+  "publishers": [
+    { "manifestId": "duplo.extensions.your-extension", "repository": "duplocloud/your-repo", "consoleExtension": "[console extension uuid]" }
+  ]
+}
 ```
 
 The `consoleExtension` uuid comes from the console's extensions page. Without an entry, or with one that
@@ -99,8 +105,8 @@ pinned devkit commit, so joining the allowlist takes a PR in both repositories: 
 repository added to the role's trust list there. Either alone leaves the id unable to publish, refused by
 AWS on one side or skipped by the allowlist check on the other.
 
-Changes to this file, `release.yml`, `release-extensions.sh` and the signer take two approvals from the
-`devkit-maintainers` team, since each one can change what gets signed or where it ends up.
+The design calls for two approvals from the `devkit-maintainers` team on changes to this file, `release.yml`,
+`release-extensions.sh` and the signer, though the ruleset enforcing that is not configured yet.
 
 ## The channels bucket and the license server
 
@@ -120,11 +126,11 @@ compares bytes. Identical content counts as already uploaded and the run moves o
 the job, since a published build is never replaced.
 
 Registering the version with the license server follows the same shape. The script looks up the version by
-its number before creating it, and a 400 reporting a duplicate just means a concurrent run created it first,
-so it looks up again rather than failing. It registers the artifact for this SDK the same way, by looking
-it up before creating it. An existing artifact whose path, hash and signature all match counts as already
-done. One that differs fails the job. The script never marks a version published. Every version it creates
-starts unpublished, and stays that way until a platform owner publishes it.
+its number before creating it, and an error saying the record already exists just means a concurrent run
+created it first, so it looks up again rather than failing. It registers the artifact for this SDK the same
+way, by looking it up before creating it. An existing artifact whose path, hash and signature all match
+counts as already done. One that differs fails the job. The script never marks a version published. Every
+version it creates starts unpublished, and stays that way until a platform owner publishes it.
 
 ## Certificate reissue and key rotation
 
