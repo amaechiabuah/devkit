@@ -49,10 +49,15 @@ run() {
 
 echo "check-extension-pr:"
 
-t "warns when an extension changed with no manifest.version bump"
-new_repo; change two
+t "warns when a released extension changed with no manifest.version bump"
+new_repo; git -C "$REPO" tag demo-v0.1.0-sdk-1.0.6 main; change two
 OUT="$(run)"; RC=$?
 if [ "$RC" = 0 ] && grep -q "::warning.*extensions/demo.*manifest.version" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
+
+t "is quiet about an unbumped version that has no release yet"
+new_repo; change two
+OUT="$(run)"; RC=$?
+if [ "$RC" = 0 ] && ! grep -q "manifest.version" <<<"$OUT"; then ok; else bad "rc=$RC out=$OUT"; fi
 
 t "is quiet about the version when it was bumped"
 new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'; change two

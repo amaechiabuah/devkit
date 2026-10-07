@@ -42,8 +42,10 @@ for m in extensions/*/manifest.json extension/*/manifest.json extension/manifest
 
   version="$(jq -r '.version' "$m")"
   base_version="$(git show "$base:$m" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)"
-  if [ -n "$base_version" ] && [ "$base_version" = "$version" ]; then
-    warn "$m" "$dir changed but manifest.version is still $version. Bump it, or the release job refuses to publish this content."
+  # The release job refuses only a version that already has a release tag, under either tag shape, so warn only then.
+  slug="$(basename "$dir")"
+  if [ -n "$base_version" ] && [ "$base_version" = "$version" ] && [ -n "$(git tag -l "$slug-v$version" "$slug-v$version-sdk-*")" ]; then
+    warn "$m" "$dir changed but manifest.version is still $version, which is already released. Bump it, or the release job refuses to publish this content."
   fi
 
   for v in "$(jq -r '.id' "$m")" "$version"; do
