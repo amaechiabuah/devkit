@@ -102,6 +102,9 @@ def sign_bytes(zip_path, key_pem, cert, now):
     key = serialization.load_pem_private_key(key_pem.encode(), password=None)
     if jwk_of(key.public_key()) != {k: claims.get("jwk", {}).get(k) for k in ("kty", "crv", "x", "y")}:
         refuse("signing key and certificate don't match")
+    nbf = claims.get("nbf")
+    if not isinstance(nbf, int) or now < nbf:
+        refuse("the signing certificate is not valid yet. Check the runner clock, or wait for its start time")
     exp = claims.get("exp")
     if not isinstance(exp, int) or now >= exp:
         refuse("the signing certificate has expired. Reissue it in the console and update CONSOLE_SIGNING_CERT")

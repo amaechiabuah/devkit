@@ -61,6 +61,12 @@ EXP=$(python3 -c 'import jwt,sys; print(jwt.decode(sys.argv[1], options={"verify
 OUT=$(EXTENSION_SIGNING_KEY="$(cat $V/publisher.pem)" EXTENSION_SIGNING_CERT="$CERT" EXTENSION_SIGN_NOW="$EXP" python3 $S sign "$TMP/g.zip" 2>&1)
 [ $? != 0 ] && grep -q "expired" <<<"$OUT" && ok || bad "$OUT"
 
+t "refuses a certificate that is not valid yet"
+mkzip io.example.hello 1.0.0 1.0.0 "$TMP/n.zip"
+NBF=$(python3 -c 'import jwt,sys; print(jwt.decode(sys.argv[1], options={"verify_signature": False})["nbf"])' "$CERT")
+OUT=$(EXTENSION_SIGNING_KEY="$(cat $V/publisher.pem)" EXTENSION_SIGNING_CERT="$CERT" EXTENSION_SIGN_NOW="$((NBF - 1))" python3 $S sign "$TMP/n.zip" 2>&1)
+[ $? != 0 ] && grep -q "not valid yet" <<<"$OUT" && [ ! -f "$TMP/n.zip.sig" ] && ok || bad "$OUT"
+
 t "warns when the certificate expires within 30 days"
 mkzip io.example.hello 1.0.0 1.0.0 "$TMP/h.zip"
 OUT=$(EXTENSION_SIGNING_KEY="$(cat $V/publisher.pem)" EXTENSION_SIGNING_CERT="$CERT" EXTENSION_SIGN_NOW="$((EXP - 86400))" python3 $S sign "$TMP/h.zip" 2>&1)
