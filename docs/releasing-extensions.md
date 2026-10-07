@@ -84,6 +84,25 @@ before it is signed or released, since that build could never be registered. A m
 The role is only assumed for a repository the allowlist names, through GitHub's OIDC token
 (`permissions: id-token: write`), so a repository that does not publish never needs AWS credentials at all.
 
+### One-time console setup
+
+A platform owner sets up each of these once in the console. Each one then serves every release.
+
+1. **The API key behind `CONSOLE_API_KEY`.** In the platform-owner team, create a custom role holding
+   **View extension versions** and **Manage extension versions**, create a service account with that role,
+   and store its API key as the organization secret. The release job reads and creates only versions and
+   artifacts, and the allowlist supplies each extension's uuid, so the key needs no other capability. The
+   console's own guide covers the service-account workflow in `docs/platform_owner/extension-versions.md`.
+2. **The signing key behind `CONSOLE_SIGNING_KEY` and `CONSOLE_SIGNING_CERT`.** The publishing team needs a
+   namespace covering its manifest ids, and a signing key created under that team. The console returns the
+   key's private PEM once, at creation, and that goes into the secret. The key's certificate goes into the
+   organization variable.
+3. **One extension record per extension.** Create it under the same publishing team, with a manifest id
+   that equals the `id` in the extension's `manifest.json`. The console accepts a signed artifact only when
+   the signature's manifest id matches the record and the signing key belongs to the record's team. The
+   console's API only reads extension records, so this step happens in the console, and the record's uuid is
+   what the allowlist entry names.
+
 ### Joining the allowlist
 
 `.github/extension-publishers.json` ships empty in devkit. Each entry maps one manifest id to one
