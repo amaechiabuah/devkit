@@ -91,23 +91,34 @@ fresh; OUT=$(CONSOLE_FAIL='/artifacts/\?sdk_version=' publish_build demo-v1.0.0-
 [ $RC != 0 ] && grep -q "::error::.*lookup of the artifact failed" <<<"$OUT" && [ ! -f "$CONSOLE/artifacts.json" ] && ok || bad "rc=$RC out=$OUT"
 
 t "publishes a fresh build when asked, after its artifact is registered"
-fresh; OUT=$(publish_version=1 publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
+fresh; OUT=$(publish_version=new publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
 [ $RC = 0 ] && jq -e '.is_published == true' "$CONSOLE/published" >/dev/null && grep -q "published demo-v1.0.0-sdk-1.0.6" <<<"$OUT" \
   && [ "$(grep -n 'curl -sS --fail-with-body -X PATCH' "$LOG" | cut -d: -f1)" -gt "$(grep -n '/versions/v-1/artifacts/$' "$LOG" | tail -1 | cut -d: -f1)" ] \
   && ok || bad "rc=$RC out=$OUT"
 
 t "a re-run that asks to publish an already published version sends no PATCH"
-: > "$LOG"; OUT=$(publish_version=1 publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
+: > "$LOG"; OUT=$(publish_version=any publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
 [ $RC = 0 ] && ! grep -q "X PATCH" "$LOG" && ! grep -q "^aws " "$LOG" && ok || bad "rc=$RC out=$OUT"
 
-t "a finished, unpublished build is published by a re-run that asks, with no aws call"
+t "a manual run publishes a finished, unpublished build, with no aws call"
 fresh; publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo >/dev/null 2>&1; : > "$LOG"
-OUT=$(publish_version=1 publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
+OUT=$(publish_version=any publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
 [ $RC = 0 ] && [ "$(grep -c "X PATCH" "$LOG")" = 1 ] && ! grep -q "^aws " "$LOG" && ok || bad "rc=$RC out=$OUT"
 
 t "a failed publish fails the job"
-fresh; OUT=$(CONSOLE_FAIL='/versions/v-1/$' publish_version=1 publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
+fresh; OUT=$(CONSOLE_FAIL='/versions/v-1/$' publish_version=new publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
 [ $RC != 0 ] && grep -q "::error::.*publish" <<<"$OUT" && ok || bad "rc=$RC out=$OUT"
+
+t "a version unpublished after an opted-in push is not published again by the next push"
+fresh; publish_version=new publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo >/dev/null 2>&1
+rm -f "$CONSOLE/published"; : > "$LOG"
+OUT=$(publish_version=new publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
+[ $RC = 0 ] && ! grep -q "X PATCH" "$LOG" && [ ! -f "$CONSOLE/published" ] && ok || bad "rc=$RC out=$OUT"
+
+t "a push resuming a build an earlier run registered does not publish it"
+fresh; publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo >/dev/null 2>&1; : > "$LOG"
+OUT=$(publish_version=new publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?
+[ $RC = 0 ] && ! grep -q "X PATCH" "$LOG" && ok || bad "rc=$RC out=$OUT"
 
 t "a version lookup that still comes back empty after the POST fails the job"
 fresh; OUT=$(VERSION_VANISHES=1 publish_build demo-v1.0.0-sdk-1.0.6 duplo.demo 1.0.0 1.0.6 extensions/demo 2>&1); RC=$?

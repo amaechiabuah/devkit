@@ -229,6 +229,15 @@ jq '.publishers[0].publish = true' "$TMP/pub.json" > "$TMP/pub-publish.json"
 OUT="$(resume_run "$TMP/p1" PUBLISHERS_FILE="$TMP/pub-publish.json")"; RC=$?
 [ "$RC" = 0 ] && [ -f "$TMP/p1/console/published" ] && ok || bad "rc=$RC out=$OUT"
 
+t "with publish true, a later push does not publish the version again once it is unpublished"
+rm -f "$TMP/p1/console/published"
+OUT="$(resume_run "$TMP/p1" PUBLISHERS_FILE="$TMP/pub-publish.json")"; RC=$?
+[ "$RC" = 0 ] && [ ! -f "$TMP/p1/console/published" ] && ok || bad "rc=$RC out=$OUT"
+
+t "a manual run with EXTENSION_PUBLISH=true publishes a version an earlier run registered"
+OUT="$(resume_run "$TMP/p1" PUBLISHERS_FILE="$TMP/pub.json" EXTENSION_PUBLISH=true)"; RC=$?
+[ "$RC" = 0 ] && [ -f "$TMP/p1/console/published" ] && ok || bad "rc=$RC out=$OUT"
+
 t "a run with EXTENSION_PUBLISH=true publishes the version it registers"
 OUT="$(resume_run "$TMP/p2" PUBLISHERS_FILE="$TMP/pub.json" EXTENSION_PUBLISH=true)"; RC=$?
 [ "$RC" = 0 ] && [ -f "$TMP/p2/console/published" ] && ok || bad "rc=$RC out=$OUT"

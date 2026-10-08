@@ -22,8 +22,8 @@ publisher_extension_uuid() {
 }
 
 # publisher_auto_publish <manifest-id> <org/repo>: exit 0 when that repository's entry for the id sets "publish": true,
-# so every version the release job registers for it is also published. Sits in this reviewed file rather than in
-# each extension repo, so turning it on takes the same review as joining the allowlist.
+# so a build the release job newly registers for it is also published. The job reads the extension repository's own
+# copy of this file, so the flag is gated by that repository's branch protection, not by devkit's review.
 publisher_auto_publish() {
   [ -f "$publishers_file" ] || return 1
   jq -e --arg id "$1" --arg repo "$2" \

@@ -166,16 +166,21 @@ counts as already done. One that differs fails the job. Every version it creates
 
 Publishing a version is what ships its build to every entitled install, so it is opt-in, in either of two ways.
 
-- **Per extension.** Set `"publish": true` on the extension's allowlist entry. Every version the release job
-  registers for it is then published. The flag sits in devkit's reviewed allowlist, not in the extension
-  repository, so turning it on takes the same review as joining the allowlist.
+- **Per extension.** Set `"publish": true` on the extension's allowlist entry. A push to `main` then publishes a
+  version when that run newly registers its build. A push that resumes a release an earlier run registered never
+  publishes, so a version a platform owner unpublished stays unpublished.
 - **Per run.** Start the Extension Release workflow by hand with its `publish` input checked. That run
-  publishes every version it registers, and a push to `main` never does. A manual run also publishes a version
-  an earlier run already registered, since it resumes that release and finds the build already in place.
+  publishes every version it registers, and also a version an earlier run registered, since a person chose that
+  run. It is also how to publish a version whose publish failed after registration.
 
 Either way, the version is published only after its build is uploaded and its artifact is registered and
 matches the release. A version that is already published is left alone. A repository builds against one SDK at
 a time, so a version with builds for several SDKs is published once its first build is registered.
+
+The release job reads the extension repository's own copy of the allowlist, so `"publish": true` is gated by
+that repository's branch protection, not by devkit's review. Whoever can merge to the repository's `main` can turn
+it on, much as they could change the release scripts the job runs. The console key that registers versions can
+also publish them, since one capability covers both.
 
 ## Certificate reissue and key rotation
 
