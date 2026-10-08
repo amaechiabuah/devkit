@@ -1,7 +1,9 @@
 # shellcheck shell=bash
 # Sourced by scripts/release-extensions.sh. Signing is mandatory in Duplo's two organizations and skipped anywhere
 # else, so a customer copy of the release workflow behaves as before with no Duplo credential. Upload and registration
-# run only in Duplo's organizations, for a manifest id the allowlist maps to this repository.
+# run only in Duplo's organizations, for a manifest id the allowlist maps to this repository. A registered version
+# stays unpublished unless the caller sets publish_version=1, which scripts/release-extensions.sh does when the
+# allowlist entry sets "publish": true or a manual run asks for it.
 
 # duplo_org: exit 0 when this run belongs to one of Duplo's organizations.
 duplo_org() { case "${GITHUB_REPOSITORY_OWNER:-}" in duplocloud|duplocloud-internal) return 0 ;; *) return 1 ;; esac; }
@@ -47,6 +49,20 @@ artifact_matches() {
     <<<"$1" >/dev/null
 }
 
+# maybe_publish <tag> <version uuid>: mark the version published when publish_version=1 and it is not already.
+# Runs only after the build's artifact is registered and matches the release, so a version is never published ahead
+# of the build it ships.
+maybe_publish() {
+  [ "${publish_version:-0}" = 1 ] || return 0
+  local tag=$1 vuuid=$2 out
+  out="$(console GET "/api/extensions/$uuid/versions/$vuuid/")" \
+    || { echo "::error::$tag — console lookup of the version to publish failed: $out"; return 1; }
+  if jq -e '.is_published == true' <<<"$out" >/dev/null; then echo "==> $tag's version is already published"; return 0; fi
+  out="$(console PATCH "/api/extensions/$uuid/versions/$vuuid/" '{"is_published": true}')" \
+    || { echo "::error::$tag — console refused to publish the version: $out"; return 1; }
+  echo "==> published $tag in the license server"
+}
+
 # publish_build <tag> <id> <version> <sdk> <dir>: upload the Release's zip and .sig, then register both. Reads the
 # assets from the Release so a re-run reuses the bytes already signed and released, with no rebuild.
 #
@@ -74,7 +90,7 @@ publish_build() {
       out="$(console GET "/api/extensions/$uuid/versions/$vuuid/artifacts/?sdk_version=$sdk")" \
         || { echo "::error::$tag — console lookup of the artifact failed: $out"; rm -rf "$dl"; return 1; }
       if artifact_matches "$out" "$(artifact_body "$key" "$sdk" "$sha" "$dl/extension.zip.sig")"; then
-        echo "==> $tag already published"; rm -rf "$dl"; return 0
+        echo "==> $tag already uploaded and registered"; rm -rf "$dl"; maybe_publish "$tag" "$vuuid"; return
       fi
     fi
   fi
@@ -108,11 +124,12 @@ publish_build() {
     || { echo "::error::$tag — console lookup of the artifact failed: $out"; rm -rf "$dl"; return 1; }
   if [ "$(jq 'length' <<<"$out")" -gt 0 ]; then
     if artifact_matches "$out" "$art"; then
-      echo "==> $tag already registered"; rm -rf "$dl"; return 0
+      echo "==> $tag already registered"; rm -rf "$dl"; maybe_publish "$tag" "$vuuid"; return
     fi
     echo "::error::$tag — the console already holds a build for SDK $sdk that differs from this release."; rm -rf "$dl"; return 1
   fi
   out="$(console POST "/api/extensions/$uuid/versions/$vuuid/artifacts/" "$art")" \
     || { echo "::error::$tag — console refused the artifact: $out"; rm -rf "$dl"; return 1; }
-  echo "==> registered $tag in the license server (unpublished)"; rm -rf "$dl"
+  echo "==> registered $tag in the license server"; rm -rf "$dl"
+  maybe_publish "$tag" "$vuuid"
 }

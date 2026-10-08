@@ -27,8 +27,8 @@ frontend bundle ships without the file that Native Federation hosts need.
 
 In `duplocloud` and `duplocloud-internal`, the release also carries `extension.zip.sig`, and, for an id the
 allowlist maps to this repository, the build is uploaded to the channels bucket and registered as a new,
-unpublished version with the license server. Nothing in this workflow ever publishes a version. A platform
-owner does that separately, once the build has been verified.
+unpublished version with the license server. A version stays unpublished, for a platform owner to publish
+once the build has been verified, unless the extension opts in to publishing (see "Publishing on register").
 
 Outside those two organizations, a release ships the zip alone. A customer's copy of this workflow holds no
 DuploCloud signing credential, so it signs nothing, uploads nothing, and registers nothing.
@@ -90,9 +90,10 @@ A platform owner sets up each of these once in the console. Each one then serves
 
 1. **The API key behind `CONSOLE_API_KEY`.** In the platform-owner team, create a custom role holding
    **View extension versions** and **Manage extension versions**, create a service account with that role,
-   and store its API key as the organization secret. The release job reads and creates only versions and
-   artifacts, and the allowlist supplies each extension's uuid, so the key needs no other capability. The
-   console's own guide covers the service-account workflow in `docs/platform_owner/extension-versions.md`.
+   and store its API key as the organization secret. The release job reads and creates versions and artifacts,
+   and publishes a version when opted in. Manage extension versions covers publishing, and the allowlist
+   supplies each extension's uuid, so the key needs no other capability. The console's own guide covers the
+   service-account workflow in `docs/platform_owner/extension-versions.md`.
 2. **The signing key behind `CONSOLE_SIGNING_KEY` and `CONSOLE_SIGNING_CERT`.** The publishing team needs a
    namespace covering its manifest ids, and a signing key created under that team. The console returns the
    key's private PEM once, at creation, and that goes into the secret. The key's certificate goes into the
@@ -106,7 +107,7 @@ A platform owner sets up each of these once in the console. Each one then serves
 ### Joining the allowlist
 
 `.github/extension-publishers.json` ships empty in devkit. Each entry maps one manifest id to one
-repository and one console extension:
+repository and one console extension, with an optional `"publish": true` (see "Publishing on register"):
 
 ```json
 {
@@ -159,8 +160,22 @@ Registering the version with the license server follows the same shape. The scri
 its number before creating it, and an error saying the record already exists just means a concurrent run
 created it first, so it looks up again rather than failing. It registers the artifact for this SDK the same
 way, by looking it up before creating it. An existing artifact whose path, hash and signature all match
-counts as already done. One that differs fails the job. The script never marks a version published. Every
-version it creates starts unpublished, and stays that way until a platform owner publishes it.
+counts as already done. One that differs fails the job. Every version it creates starts unpublished.
+
+### Publishing on register
+
+Publishing a version is what ships its build to every entitled install, so it is opt-in, in either of two ways.
+
+- **Per extension.** Set `"publish": true` on the extension's allowlist entry. Every version the release job
+  registers for it is then published. The flag sits in devkit's reviewed allowlist, not in the extension
+  repository, so turning it on takes the same review as joining the allowlist.
+- **Per run.** Start the Extension Release workflow by hand with its `publish` input checked. That run
+  publishes every version it registers, and a push to `main` never does. A manual run also publishes a version
+  an earlier run already registered, since it resumes that release and finds the build already in place.
+
+Either way, the version is published only after its build is uploaded and its artifact is registered and
+matches the release. A version that is already published is left alone. A repository builds against one SDK at
+a time, so a version with builds for several SDKs is published once its first build is registered.
 
 ## Certificate reissue and key rotation
 
