@@ -128,8 +128,9 @@ pinned devkit commit, so joining the allowlist takes a PR in both repositories: 
 repository added to the role's trust list there. Either alone leaves the id unable to publish, refused by
 AWS on one side or skipped by the allowlist check on the other.
 
-The design calls for two approvals from the `devkit-maintainers` team on changes to this file, `release.yml`,
-`release-extensions.sh` and the signer, though the ruleset enforcing that is not configured yet.
+Changes to this file, `release.yml`, `release-extensions.sh`, `_publish.sh`, `_publishers.sh` and the signer
+are meant to take two approvals from the `devkit-maintainers` team, through a path-scoped rule in devkit's
+ruleset. Together those files decide what gets signed, uploaded and registered.
 
 ## The channels bucket and the license server
 
