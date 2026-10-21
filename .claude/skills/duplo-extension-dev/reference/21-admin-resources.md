@@ -136,10 +136,19 @@ unchanged ([03-base-classes](03-base-classes.md), [11-deprovisioning](11-deprovi
   `GetAdditionalProvisioningTokenPatterns()` may not name an admin route (the platform rejects it), so the
   agent can reach nothing on the admin side beyond its own resource's callbacks.
 - **Worker / Passthrough / No-provision** run inside the host and need no token.
-- **Scope credentials.** The Admin Workspace has **no scopes**. If provisioning needs cloud or SaaS credentials,
-  add the scope ids to the resource's own `spec.scopeIds` (an admin picks them on the add form); the agent then
-  receives them as usual ([07-scope-credentials](07-scope-credentials.md)). Do not ask the developer to pick
-  "test scopes from the workspace" for an admin resource.
+- **Provider-scope credentials.** `spec.scopeIds` alone gives the agent **nothing**. When it builds the ticket's
+  platform context the platform keeps only ticket scope ids that are in the *ticket workspace's* `scopeIds` and
+  skips the rest (*"does not have access to scope … skipping"*). The ticket workspace is the Admin Workspace,
+  which is seeded with **no** provider scopes. So when provisioning needs cloud or SaaS credentials:
+  1. An administrator **attaches the provider scope(s) to the Admin Workspace** — `PUT` its `scopeIds` on
+     `…/admin/data/workspaces/{adminWorkspaceId}`, the same call as for any workspace
+     ([07-scope-credentials](07-scope-credentials.md), step 3). Its id is the `ownerWorkspaceId` of any admin row
+     (backend code: `Workspace.AdminWorkspaceId`).
+  2. The resource's `spec.scopeIds` names a **subset** of those — offer only the Admin Workspace's scopes on the
+     add form. The agent then receives them as usual.
+
+  Do not ask the developer to pick "test scopes from the workspace" for an admin resource — ask which provider
+  scopes it needs and have them attached to the Admin Workspace first.
 
 ## Frontend
 
@@ -170,12 +179,12 @@ ticketName(id: string): Observable<string | null> {                    // ticket
 ]
 ```
 
-- `scope` is `"workspace"` (the default when omitted) or `"admin"`. On `menus[]` it is read **only on the
+- The extension scope key `scope` is `"workspace"` (the default when omitted) or `"admin"`. On `menus[]` it is read **only on the
   top-level node**; the whole tree renders on that side. Admin trees merge into the AI Admin menu **by title**,
   the same way workspace trees merge into AI DevOps ([08-parent-child-and-menus](08-parent-child-and-menus.md)).
 - Every admin menu link needs a `routes[]` entry with the same `path` **and** `"scope": "admin"`; the router
   mounts it under `suite/admin/<path>` behind the admin guard.
-- An extension that surfaces on both sides declares two menu trees (one per scope) and routes for each.
+- An extension that surfaces on both sides declares two menu trees (one per extension scope) and routes for each.
 - **Ticket links go to AI Admin:** `this.router.navigate(['/ai/suite/admin/tickets/chat', name])`. Never
   `/ai/service-desk/<workspaceId>/tickets/chat/<name>` with the Admin Workspace id: that route's
   `SubscriptionsGuard` only accepts workspaces in the user's workspace list, the Admin Workspace is hidden from
@@ -223,7 +232,7 @@ public class AdminSettingsReadController : ControllerBase
 - The host stamps `scope` on each extension route, and the remote's routes inherit it:
   `route.snapshot.data['scope']` is `'admin'` in AI Admin and `'workspace'` in AI DevOps. The service picks
   its base URL from it per call (it is a root singleton, shared by both sides).
-- In `workspace` scope hide Create/Edit/Track/Ask agent, the hidden fields' columns and tiles, and send a direct
+- In `workspace` extension scope hide Create/Edit/Track/Ask agent, the hidden fields' columns and tiles, and send a direct
   visit to `add`/`edit` back to the list. The provisioning ticket lives in the hidden Admin Workspace, so
   non-admins cannot open it anyway.
 
@@ -243,8 +252,8 @@ public class AdminSettingsReadController : ControllerBase
 - the host SDK has no `AdminResourcesController`;
 - a `ResourcesController`/`ChildResourceController` uses an admin route — except a child controller that overrides
   `GetWorkspaceIdFromRoute()`, which must then sit under the admin prefix and override all five workspace actions;
-- a `scope` value is not `workspace` or `admin`, or a non-top-level menu node sets `scope`;
-- a menu link has no `routes[]` entry with the same path and the same scope;
+- an extension `scope` value is not `workspace` or `admin`, or a non-top-level menu node sets `scope`;
+- a menu link has no `routes[]` entry with the same path and the same extension scope;
 - the backend has only admin-scoped controllers but no frontend file calls `/v1/aiservicedesk/admin/data/environment/…`.
 
 It warns when such an extension's skills post to `…/user/data/workspaces/…`.

@@ -4,7 +4,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import {
   FilterTableUtils, SearchableDatatableComponent, SearchableDatatableModule, SharedAlertsService, extractErrorMessage,
 } from '@duplocloud-internal/ng-common-lib';
-import { AdminSettingService, AdminSetting, routeScope } from '../admin-setting.service';
+import { AdminSettingService, AdminSetting, routeExtensionScope } from '../admin-setting.service';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
 
 // List view built on the platform UI library's <searchable-datatable> (from
@@ -13,7 +13,7 @@ import { StatusBadgeComponent } from '../shared/status-badge.component';
 //
 // Standalone with no `changeDetection` line: Angular 22 components are OnPush by default, and every
 // piece of async state here is a signal, so writes mark the view dirty on their own.
-// Opened from AI DevOps (route scope 'workspace') the list is READ-ONLY: no Create, no row actions beyond
+// Opened from AI DevOps (extension scope 'workspace') the list is READ-ONLY: no Create, no row actions beyond
 // View, and no Value/Applied columns — the workspace endpoint does not return them.
 //
 // SearchableDatatableModule re-exports NgbModule + NgxDatatableModule, which is where ngbDropdown and
@@ -89,8 +89,8 @@ export class ListAdminSettingComponent implements OnInit {
   private readonly svc = inject(AdminSettingService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
-  private readonly scope = routeScope(this.route);
-  protected readonly readOnly = this.scope === 'workspace';
+  private readonly extensionScope = routeExtensionScope(this.route);
+  protected readonly readOnly = this.extensionScope === 'workspace';
   // The host provides this under a STRING key. Functional inject() is typed for ProviderToken, so the
   // token needs a cast — unlike constructor @Inject(...), which accepts a bare string. Used only for the
   // list-refresh timer: an admin-scoped list never reads the selected tenant.
@@ -131,7 +131,7 @@ export class ListAdminSettingComponent implements OnInit {
     if (showLoading) {
       this.table()?.startLoading();
     }
-    this.svc.list(this.scope).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.svc.list(this.extensionScope).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: rows => {
         this.allRows.set(rows ?? []);
         this.table()?.refresh();

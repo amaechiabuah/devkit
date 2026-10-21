@@ -29,6 +29,8 @@ public class AdminSettingViewSpec
 
 /// <summary>
 /// READ-ONLY workspace view of the admin settings, so non-admins can see what administrators provisioned.
+/// OPTIONAL, and a deliberate platform-wide disclosure: every Admin Workspace row of this type is returned to
+/// any member of any workspace. Ship one only when that is intended, and project only what every tenant may see.
 /// It serves the same <c>extensions/admin-settings</c> segment on the workspace side, with only
 /// <c>GET</c> (list) and <c>GET {id}</c>, and every response is an <see cref="AdminSettingView"/>.
 /// <list type="bullet">

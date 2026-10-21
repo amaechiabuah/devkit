@@ -5,7 +5,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { timer } from 'rxjs';
 import { exhaustMap, takeWhile, tap } from 'rxjs/operators';
 import { CommonLibComponentsModule, SharedAlertsService, extractErrorMessage } from '@duplocloud-internal/ng-common-lib';
-import { AdminSettingService, AdminSetting, routeScope } from '../admin-setting.service';
+import { AdminSettingService, AdminSetting, routeExtensionScope } from '../admin-setting.service';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
 import { LifecyclePhase, LifecycleRailComponent, RailFact } from '../shared/lifecycle-rail.component';
 
@@ -20,7 +20,7 @@ import { LifecyclePhase, LifecycleRailComponent, RailFact } from '../shared/life
 // the phase ladder includes "Needs your input" (Blocked / WaitingForApproval). Worker and Passthrough
 // resources drop those (see samples/worker-compute, samples/passthrough-configmap).
 //
-// Opened from AI DevOps (route scope 'workspace') the page is READ-ONLY: no Ask agent, Edit or Track status
+// Opened from AI DevOps (extension scope 'workspace') the page is READ-ONLY: no Ask agent, Edit or Track status
 // (admin-only), and no value — the workspace endpoint leaves it out.
 //
 // CommonLibComponentsModule re-exports CommonModule (date pipe), NgbModule (ngbNav, ngbDropdown) and
@@ -149,8 +149,8 @@ export class ViewAdminSettingComponent implements OnInit {
   private readonly svc = inject(AdminSettingService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
-  private readonly scope = routeScope(this.route);
-  protected readonly readOnly = this.scope === 'workspace';
+  private readonly extensionScope = routeExtensionScope(this.route);
+  protected readonly readOnly = this.extensionScope === 'workspace';
   private readonly destroyRef = inject(DestroyRef);
   private readonly locale = inject(LOCALE_ID);
   private readonly alerts = inject(SharedAlertsService);
@@ -238,7 +238,7 @@ export class ViewAdminSettingComponent implements OnInit {
   ngOnInit(): void {
     const id = this.route.snapshot.params['id'];
     timer(0, 3000).pipe(
-      exhaustMap(() => this.svc.get(id, this.scope)),
+      exhaustMap(() => this.svc.get(id, this.extensionScope)),
       tap(i => {
         if (!this.item()) {
           this.view.set(i?.result?.summary ? 'result' : 'spec');

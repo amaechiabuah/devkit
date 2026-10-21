@@ -1,7 +1,7 @@
 import { Component, OnInit, inject, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormGroupErrorsComponent, SharedFormsModule } from '@duplocloud-internal/ng-common-lib';
-import { AdminSettingService, routeScope } from '../admin-setting.service';
+import { AdminSettingService, routeExtensionScope } from '../admin-setting.service';
 
 // Add/Edit form in the platform's 3-column `panel-form-accordion` layout: title+description (left), inputs
 // (center), per-field help (right). One component serves both routes — `edit/:id` carries data.action='Edit'.
@@ -115,7 +115,7 @@ export class AddAdminSettingComponent implements OnInit {
 
   ngOnInit(): void {
     // Admin settings are created and edited only from AI Admin; the AI DevOps side is read-only.
-    if (routeScope(this.route) === 'workspace') {
+    if (routeExtensionScope(this.route) === 'workspace') {
       this.back();
       return;
     }

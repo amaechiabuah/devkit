@@ -93,13 +93,13 @@ DI container** (`ExtensionRegistrar.RegisterExtension` registers each resource's
 "resources": [
   {
     "ticketOriginType": "HelloParent", "restSegment": "extensions/hello-parents", "subType": "hello-parent",
-    "archetype": "typed", "registrar": "DevOpsResource",
+    "archetype": "typed",
     "entityType": "…HelloParent", "specType": "…HelloParentSpec", "resultType": "…HelloParentResult",
     "hooksType": "…HelloParentHooks", "serviceType": "…HelloParentService"
   },
   {
     "ticketOriginType": "HelloChild", "restSegment": "hello-children", "subType": "hello-child",   // CHILD restSegment is BARE by design — the extensions/ namespacing comes from the parent route (00-naming carve-out)
-    "archetype": "typed", "registrar": "DevOpsResource",
+    "archetype": "typed",
     "parent": {                                  // ← links child to parent (nested under it)
       "ticketOriginType": "HelloParent",
       "routeSegment": "extensions/hello-parents",   // namespaced; MUST equal the parent's restSegment

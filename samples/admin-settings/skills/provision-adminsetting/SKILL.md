@@ -24,8 +24,10 @@ read spec  ->  POST status Processing (+ progressive subStatus)  ->  do the work
 - `shared/admin-setting.json` — the resource's expanded spec. Read `spec.settingKey`, `spec.settingValue`, and
   `id` for the write-back URL. `ownerWorkspaceId` is always the Admin Workspace;
   you do not need it.
-- **No scope credentials by default.** The Admin Workspace has no scopes; a skill only gets credentials for
-  scopes listed in the resource's own `spec.scopeIds`.
+- **No Provider-scope credentials by default.** You only receive credentials for scope ids that are both in the
+  resource's `spec.scopeIds` **and** attached to the Admin Workspace (the ticket's workspace) — the platform skips
+  any other id. The Admin Workspace starts with none, so an administrator attaches them first. This sample needs
+  none.
 
 Write-back base: `RES=${DUPLO_BASE:-$DUPLO_HOST}/v1/aiservicedesk/admin/data/environment/extensions/admin-settings/<id>`
 (the resource's OWN admin route — it must equal the `AdminSettingController` `[Route]`). Never post to the

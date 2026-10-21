@@ -84,7 +84,7 @@ if [ -d "$DIR/skills" ]; then
         | grep -vE 'environment/(extensions/|extension-studio)' | grep -vE 'environment/\{' || true)
   [ -n "$bad" ] && { echo "  ! skill callback URL(s) not under 'environment/extensions/' — confirm they target this extension's restSegment:" >&2; printf '%s\n' "$bad" | sed 's/^/      /' >&2; }
 fi
-# Admin scope (reference/21-admin-resources.md). An AdminResourcesController serves an admin-only route with no
+# Admin extension scope (reference/21-admin-resources.md). An AdminResourcesController serves an admin-only route with no
 # {workspaceId} and owns its rows in the system Admin Workspace; a workspace controller must never sit under the
 # admin prefix. The manifest marks admin surfaces with "scope": "admin" on the top-level menu node + its routes.
 has_admin=0; has_ws=0
@@ -123,14 +123,14 @@ while IFS= read -r f; do
   fi
 done < <(grep -rlE 'Controller<' "$DIR/backend" --include='*.cs' 2>/dev/null | grep -vE '/(bin|obj)/' || true)
 while IFS= read -r sc; do
-  echo "  ✗ frontend scope '$sc' must be 'workspace' or 'admin'" >&2; viol=1
+  echo "  ✗ frontend extension scope '$sc' must be 'workspace' or 'admin' (this is not a Provider scope)" >&2; viol=1
 done < <(jq -r '[.frontend.routes[]?.scope, .frontend.menus[]?.scope] | map(select(. != null and . != "workspace" and . != "admin")) | .[]' "$MANIFEST")
 while IFS= read -r n; do
-  echo "  ✗ frontend.menus node '$n' sets 'scope' — only the TOP-LEVEL node of a menu tree may (the whole tree follows it)" >&2; viol=1
+  echo "  ✗ frontend.menus node '$n' sets the extension 'scope' — only the TOP-LEVEL node of a menu tree may (the whole tree follows it)" >&2; viol=1
 done < <(jq -r '.frontend.menus // [] | .[] | (.children // []) | .. | objects | select(has("scope")) | (.id // .title)' "$MANIFEST")
 while IFS=$'\t' read -r u sc; do
   [ -n "$u" ] || continue
-  echo "  ✗ menu link '$u' is in a '$sc' menu tree but no frontend.routes[] entry has path '$u' with that scope (omitted scope = workspace)" >&2; viol=1
+  echo "  ✗ menu link '$u' is in a '$sc'-extension-scope menu tree but no frontend.routes[] entry has path '$u' with that extension scope (omitted = workspace)" >&2; viol=1
 done < <(jq -r '(.frontend.routes // []) as $r | .frontend.menus // [] | .[] | (.scope // "workspace") as $s
   | [.. | objects | .relativeUrl? // empty] | .[] as $u
   | select(([$r[] | select(.path == $u) | (.scope // "workspace")] | index($s)) == null) | "\($u)\t\($s)"' "$MANIFEST")

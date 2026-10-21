@@ -101,21 +101,36 @@ Lead with the requirement and **listen** — do not interrogate with a checklist
   to confirm or change it; do not ask for a name cold before hearing the requirement. In a shared repo the name —
   and the frontend's federation remote `name` — must collide with no sibling extension.
 
-## Step 3 — Workspace or admin scope, then the scopes to test with
-First settle **where each resource lives** (derive from the requirement; ask if unclear; never default to admin):
+## Step 3 — Extension scope (workspace or admin), then the Provider scopes to test with
+Two different "scopes" are settled here — keep them apart when you talk to the user.
+
+First settle each resource's **extension scope**: where it lives (derive from the requirement; ask if unclear;
+never default to admin):
 - **Workspace** (default) — a tenant's resource, used by workspace members, shown in AI DevOps.
-- **Admin** — platform-wide configuration only administrators manage (a VPN server, an SSO integration, a global
-  setting): `AdminResourcesController`, an admin-only route with no workspace, rows owned by the system Admin
-  Workspace, menu in AI Admin. It needs SDK ≥ 1.0.7 — check `GET <base>/v1/aiservicedesk/extensions/sdk-version`
-  and warn if older. See `.claude/skills/duplo-extension-dev/reference/21-admin-resources.md`.
+- **Admin** — platform-wide configuration administrators manage (a VPN server, an SSO integration, a global
+  setting): `AdminResourcesController` with the usual `[AccessControl]` node, an admin route with no workspace,
+  rows owned by the system Admin Workspace, access for administrators plus anyone granted the Admin Workspace,
+  menu in AI Admin. It needs a host whose SDK ships `AdminResourcesController`; the build probes for it and stops
+  with a clear error otherwise. See `.claude/skills/duplo-extension-dev/reference/21-admin-resources.md`.
+- **Both** — the common shape: an admin resource plus workspace resources that consume it (pick it, read its
+  details). Model it on `samples/admin-settings` (`AdminSetting` + `AdminSettingConsumer`).
 
-**Admin-only extension:** skip the workspace + scope listing below. The Admin Workspace has no scopes, so if
-provisioning needs credentials, ask which scope(s) the resource's **spec** should carry (list them with
-`GET <base>/v1/aiservicedesk/admin/data/scopes`) — an administrator picks them on the add form, and they become
-`spec.scopeIds`. Then go to Step 4.
+Then settle the **Provider scopes** — the credentials the agent uses during provisioning — for each resource.
 
-A scope carries the credentials the agent will use during provisioning. For a **workspace** resource, settle the
-**workspace** to author against, then list its scopes and ask which one(s) this extension needs **for testing**:
+**Admin resource:** do **not** skip this. Its provisioning ticket runs in the Admin Workspace, and the platform
+hands the agent only scope ids that are attached to that workspace (any other id in `spec.scopeIds` is skipped).
+The Admin Workspace starts with none. So, if provisioning needs credentials:
+1. Use the **Admin Workspace** as `WS` in the listing below. Its id is the `ownerWorkspaceId` of any admin row;
+   if none exists yet, ask the user for it.
+2. List its scopes with the script below. If a needed provider scope is missing, list all of them
+   (`GET <base>/v1/aiservicedesk/admin/data/scopes`), ask which one(s) to use, and — with the user's OK —
+   **attach** them to the Admin Workspace: `GET …/admin/data/workspaces/<WS>`, then `PUT` it back with the ids
+   appended to `scopeIds` (reference/07-scope-credentials.md → "Registering the provider", step 3).
+3. The resource's `spec.scopeIds` must be a subset of the Admin Workspace's `scopeIds`; its add form offers only
+   those.
+
+For a **workspace** resource, settle the **workspace** to author against, then list its Provider scopes and ask
+which one(s) this extension needs **for testing**:
 - **Local** → workspace is `EXTENSION_DEV_WORKSPACE_ID` (from `.env`).
 - **Remote** → use `DUPLO_WORKSPACE_ID` if set in `.env`; otherwise `GET <base>/v1/aiservicedesk/admin/data/workspaces`,
   show the list, ask the user to pick one, and offer to save it to `.env` as `DUPLO_WORKSPACE_ID`.

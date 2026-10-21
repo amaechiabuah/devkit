@@ -10,13 +10,14 @@ export const REMOTE_DuploHttpClient = 'REMOTE_DuploHttpClient';
 export const REMOTE_UserSession = 'REMOTE_UserSession';
 
 /**
- * Which side the page was opened from. The host stamps `scope` on the extension's lazy route, and the
- * remote's routes are its componentless children, so they inherit it. `admin` = AI Admin (full CRUD);
+ * The page's EXTENSION scope — which side it was opened from (not a Provider scope). The host stamps `scope`
+ * on the extension's lazy route, and the remote's routes are its componentless children, so they inherit it.
+ * `admin` = AI Admin (full CRUD);
  * `workspace` = AI DevOps, where the same pages are READ-ONLY.
  */
-export type ViewScope = 'admin' | 'workspace';
+export type ExtensionScope = 'admin' | 'workspace';
 
-export function routeScope(route: ActivatedRoute): ViewScope {
+export function routeExtensionScope(route: ActivatedRoute): ExtensionScope {
   return route.snapshot.data['scope'] === 'admin' ? 'admin' : 'workspace';
 }
 
@@ -51,8 +52,8 @@ export class AdminSettingService {
 
   // Admin route: no {workspaceId} segment — it must equal the AdminSettingsController [Route]. The workspace
   // route is AdminSettingsReadController's: list + get only, for any member of the selected workspace.
-  private base(scope: ViewScope = 'admin'): string {
-    if (scope === 'workspace') {
+  private base(extensionScope: ExtensionScope = 'admin'): string {
+    if (extensionScope === 'workspace') {
       const tenant = this.session?.tenant?.TenantId ?? '';
       return `/v1/aiservicedesk/user/data/workspaces/${tenant}/environment/${REST_SEGMENT}`;
     }
@@ -63,15 +64,15 @@ export class AdminSettingService {
   // return bare bodies — normalize both here.
   private unwrap = (r: any) => (r && r.data !== undefined ? r.data : r);
 
-  list(scope: ViewScope = 'admin'): Observable<AdminSetting[]> {
-    return this.http.get(this.base(scope)).pipe(map((r: any) => {
+  list(extensionScope: ExtensionScope = 'admin'): Observable<AdminSetting[]> {
+    return this.http.get(this.base(extensionScope)).pipe(map((r: any) => {
       const d = this.unwrap(r);
       return (d?.items ?? d ?? []) as AdminSetting[];
     }));
   }
 
-  get(id: string, scope: ViewScope = 'admin'): Observable<AdminSetting> {
-    return this.http.get(`${this.base(scope)}/${id}`).pipe(map((r: any) => this.unwrap(r)));
+  get(id: string, extensionScope: ExtensionScope = 'admin'): Observable<AdminSetting> {
+    return this.http.get(`${this.base(extensionScope)}/${id}`).pipe(map((r: any) => this.unwrap(r)));
   }
 
   create(name: string, spec: { settingKey: string; settingValue: string }): Observable<AdminSetting> {
