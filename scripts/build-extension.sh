@@ -90,12 +90,20 @@ fi
 has_admin=0; has_ws=0
 while IFS= read -r f; do
   [ -n "$f" ] || continue
-  route=$(grep -oE 'Route\("[^"]*"\)' "$f" | head -1 | sed -E 's/Route\("([^"]*)"\)/\1/')
+  # `|| true`: a file with no Route(" attribute (a child that only routes its actions via [HttpPost("~/…")], or
+  # one that names ResourcesController< in a comment) must not abort the script under pipefail.
+  route=$( { grep -oE 'Route\("[^"]*"\)' "$f" || true; } | head -1 | sed -E 's/Route\("([^"]*)"\)/\1/')
+  # A child controller often has no class-level [Route] and roots its actions instead (03-base-classes).
+  [ -n "$route" ] || route=$( { grep -oE 'Http[A-Za-z]+\("~/[^"]*"' "$f" || true; } | head -1 | sed -E 's/.*"~\/([^"]*)"/\1/')
   if grep -qE ':[[:space:]]*AdminResourcesController<' "$f"; then
     has_admin=1
     case "$route" in v1/aiservicedesk/admin/data/environment/extensions/*) ;; *)
       echo "  ✗ $(basename "$f"): an AdminResourcesController must be routed at 'v1/aiservicedesk/admin/data/environment/extensions/<…>' (got '$route')" >&2; viol=1 ;;
     esac
+    # Mirrors the host's startup check: an admin controller whose entity is not a registered access node fails
+    # the access registry rebuild, and the extension load is rolled back.
+    grep -qE '^[[:space:]]*\[([^]/]*[,[:space:]])?AccessControl\(' "$f" || {
+      echo "  ✗ $(basename "$f"): an AdminResourcesController must declare its access node — [AccessControl(Parent = typeof(Workspace), ParentIdProperty = \"OwnerWorkspaceId\")] — or the host rejects the load" >&2; viol=1; }
   elif grep -qE ':[[:space:]]*ChildResourceController<' "$f" && grep -qE 'override string GetWorkspaceIdFromRoute' "$f"; then
     # Admin child: the SDK has no admin ChildResourceController, so the extension's child controller
     # overrides GetWorkspaceIdFromRoute (+ the workspaceId actions) itself — see reference/21-admin-resources.md.
@@ -104,7 +112,7 @@ while IFS= read -r f; do
       echo "  ✗ $(basename "$f"): an admin child controller (overrides GetWorkspaceIdFromRoute) must be routed under 'v1/aiservicedesk/admin/data/environment/extensions/<…>' (got '$route')" >&2; viol=1 ;;
     esac
     for a in CanDeprovision Deprovision ForceReconcile CreateTicket GetTicketStatus; do
-      grep -qE "override Task<IActionResult> $a\(" "$f" || {
+      grep -qE "override[[:space:]]+(async[[:space:]]+)?Task<IActionResult>[[:space:]]+$a\(" "$f" || {
         echo "  ✗ $(basename "$f"): admin child controller must override $a with a [BindNever] string? workspaceId (the admin route has no {workspaceId}; otherwise it returns 400)" >&2; viol=1; }
     done
   elif grep -qE ':[[:space:]]*(ResourcesController|ChildResourceController)<' "$f"; then
@@ -147,7 +155,8 @@ fi
 # 'extensions/<…>' path AND (for a single top-level resource) equal the manifest restSegment. A bare leaf 404s
 # every list/get/create/view-template call — the #1 scaffolding pitfall. See reference/00-naming.md.
 if [ -d "$DIR/frontend/src" ]; then
-  fe_segs=$(grep -rhoE "REST_SEGMENT[[:space:]]*=[[:space:]]*'[^']+'" "$DIR/frontend/src" 2>/dev/null \
+  # `|| true`: a frontend with no REST_SEGMENT constant must not abort the script silently under pipefail.
+  fe_segs=$( { grep -rhoE "REST_SEGMENT[[:space:]]*=[[:space:]]*'[^']+'" "$DIR/frontend/src" 2>/dev/null || true; } \
             | sed -E "s/.*'([^']+)'.*/\1/" | sort -u)
   while IFS= read -r seg; do
     [ -n "$seg" ] || continue
@@ -219,6 +228,18 @@ unzip -oq "$DIR/dist-sdk.zip" -d "$DIR/backend/sdk-packages" \
 SDK_FEED="$(mktemp -d)"
 unzip -oq "$DIR/dist-sdk.zip" -d "$SDK_FEED"
 SDK_DIGEST="$(sdk_digest "$SDK_FEED")" || { rm -rf "$SDK_FEED"; echo "ERROR: the SDK bundle from $BASE_URL is empty." >&2; exit 1; }
+# Admin scope needs a host SDK that ships AdminResourcesController. Probe for the type rather than compare
+# version numbers: the loader pins an extension to exactly the version the host reports, so a minimum-version
+# check says nothing about whether the feature is there. (Whole-archive unzip -p: path globs are not portable.
+# Not grep -q: it would stop reading early, SIGPIPE unzip, and pipefail would report a miss.)
+if [ "$has_admin" = 1 ]; then
+  found=0
+  for n in "$SDK_FEED"/Duplo.Ai.DataManagement.*.nupkg; do
+    [ -f "$n" ] && unzip -p "$n" 2>/dev/null | grep -a 'AdminResourcesController' >/dev/null && found=1
+  done
+  [ "$found" = 1 ] || { rm -rf "$SDK_FEED"; echo "ERROR: the host SDK ($SDK_VER) has no AdminResourcesController — this host cannot load admin-scoped extensions (reference/21-admin-resources.md)." >&2; exit 1; }
+  echo "    host SDK supports admin-scoped resources"
+fi
 rm -rf "$SDK_FEED" "$DIR/dist-sdk.zip"
 echo "    host SDK digest: $SDK_DIGEST"
 
