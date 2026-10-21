@@ -63,12 +63,43 @@ public class AdminSettingHooks : DefaultEntityHooks<AdminSetting>
 /// </summary>
 public class AdminSettingService : ResourceServiceBase<AdminSetting, AdminSettingSpec, AdminSettingResult>
 {
+    private readonly IRepository<AdminSettingConsumer> _consumers;
+
     public AdminSettingService(
         IRepository<AdminSetting> repository,
         ILogger<AdminSettingService> logger,
         IServiceScopeFactory scopeFactory,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        IRepository<AdminSettingConsumer> consumers)
         : base(repository, logger, scopeFactory, httpContextAccessor)
     {
+        _consumers = consumers;
+    }
+
+    // Workspace resources reference this row by id (AdminSettingConsumer.Spec.AdminSettingId), so tearing it down
+    // under them would leave them pointing at nothing. Block both teardown paths — deprovision (also what
+    // GET can-deprovision reports) and the hard DELETE — until no workspace references it.
+    public override async Task ValidateCanDeprovisionAsync(AdminSetting resource, CancellationToken cancellationToken)
+    {
+        await base.ValidateCanDeprovisionAsync(resource, cancellationToken);
+        await GuardNotInUseAsync(resource, cancellationToken);
+    }
+
+    protected override async Task OnBeforeDeleteAsync(AdminSetting entity, CancellationToken cancellationToken)
+    {
+        await GuardNotInUseAsync(entity, cancellationToken);
+        await base.OnBeforeDeleteAsync(entity, cancellationToken);
+    }
+
+    private async Task GuardNotInUseAsync(AdminSetting setting, CancellationToken ct)
+    {
+        // Across ALL workspaces: the consumers live in tenant workspaces, never in the Admin Workspace.
+        var inUse = await _consumers.CountAsync(c => c.Spec!.AdminSettingId == setting.Id, ct);
+        if (inUse > 0)
+        {
+            throw new InvalidOperationException(
+                $"Admin setting '{setting.Name}' is in use by {inUse} workspace resource(s) (Admin Setting Consumer). " +
+                "Deprovision those first.");
+        }
     }
 }

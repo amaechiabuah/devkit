@@ -120,8 +120,8 @@ Then settle the **Provider scopes** — the credentials the agent uses during pr
 **Admin resource:** do **not** skip this. Its provisioning ticket runs in the Admin Workspace, and the platform
 hands the agent only scope ids that are attached to that workspace (any other id in `spec.scopeIds` is skipped).
 The Admin Workspace starts with none. So, if provisioning needs credentials:
-1. Use the **Admin Workspace** as `WS` in the listing below. Its id is the `ownerWorkspaceId` of any admin row;
-   if none exists yet, ask the user for it.
+1. Use the **Admin Workspace** as `WS` in the listing below: `000000000000000000000ad1` (the SDK constant
+   `Workspace.AdminWorkspaceId`).
 2. List its scopes with the script below. If a needed provider scope is missing, list all of them
    (`GET <base>/v1/aiservicedesk/admin/data/scopes`), ask which one(s) to use, and — with the user's OK —
    **attach** them to the Admin Workspace: `GET …/admin/data/workspaces/<WS>`, then `PUT` it back with the ids

@@ -112,8 +112,8 @@ Only backend code that steps outside `AdminResourcesController`, and then throug
 
 - **An admin child controller**, because the SDK has no admin `ChildResourceController` (above).
 - **A workspace-routed controller or service that reads admin-owned rows**: the read-only workspace view below,
-  or a workspace resource that consumes an admin one (its `ValidateAsync` and its read-only picker endpoint, both
-  in the sample). Its route resolves to the caller's workspace, so it must filter on
+  or a workspace resource that consumes an admin one (its `ValidateSpecAsync` and `GetExpandedSpecForAgentAsync`,
+  both in the sample). It runs in the caller's workspace, so it must filter on
   `OwnerWorkspaceId == Workspace.AdminWorkspaceId` explicitly.
 
 The frontend and the agent skills never need it: every admin route, `ticket-status` included, resolves the
@@ -142,8 +142,8 @@ unchanged ([03-base-classes](03-base-classes.md), [11-deprovisioning](11-deprovi
   which is seeded with **no** provider scopes. So when provisioning needs cloud or SaaS credentials:
   1. An administrator **attaches the provider scope(s) to the Admin Workspace** — `PUT` its `scopeIds` on
      `…/admin/data/workspaces/{adminWorkspaceId}`, the same call as for any workspace
-     ([07-scope-credentials](07-scope-credentials.md), step 3). Its id is the `ownerWorkspaceId` of any admin row
-     (backend code: `Workspace.AdminWorkspaceId`).
+     ([07-scope-credentials](07-scope-credentials.md), step 3). Its id is the SDK constant
+     `Workspace.AdminWorkspaceId` (`000000000000000000000ad1`, also the `ownerWorkspaceId` of every admin row).
   2. The resource's `spec.scopeIds` names a **subset** of those — offer only the Admin Workspace's scopes on the
      add form. The agent then receives them as usual.
 
@@ -236,6 +236,46 @@ public class AdminSettingsReadController : ControllerBase
   visit to `add`/`edit` back to the list. The provisioning ticket lives in the hidden Admin Workspace, so
   non-admins cannot open it anyway.
 
+## Workspace resources that consume an admin resource
+
+The usual reason for an admin resource: an administrator provisions something once for the whole platform (a VPN
+server, an SSO integration, a shared setting), and **each workspace creates its own resource that uses it** (a VPN
+user, an SSO app binding). The consumer is an ordinary workspace resource — `ResourcesController`, workspace
+route, workspace node, its ticket in its own workspace — that references the admin row. `samples/admin-settings`
+ships the pair: `AdminSetting` (admin) and `AdminSettingConsumer` (workspace).
+
+| Concern | Do this | In the sample |
+|---|---|---|
+| **Reference** | The consumer's spec holds the admin row's id. | `AdminSettingConsumerSpec.AdminSettingId` |
+| **Validation** | In `ValidateSpecAsync` (create, and update when the id changes), check that the row exists, `OwnerWorkspaceId == Workspace.AdminWorkspaceId`, and `Status == Complete`. Throw `ArgumentException` — the reason reaches the form ([15](15-error-handling.md)). | `AdminSettingConsumerService.ValidateSpecAsync` |
+| **Reading admin rows** | Inject `IRepository<TAdmin>` into the consumer's service: every resource of an extension shares one container, so the repository resolves. Use the repository, not `IEntityService<TAdmin>` — this runs in a workspace request, and you filter on the owner yourself. | the service's constructor |
+| **Picker** | The add form lists admin rows from a **workspace** endpoint — workspace members cannot call the admin route — and offers only `Complete` ones (plus, on edit, the current choice). The read-only workspace view above is that endpoint; project only what members may see. | `AdminSettingsReadController`, `add-admin-setting-consumer.component.ts` |
+| **Agent input** | Override `GetExpandedSpecForAgentAsync` and embed the admin row. The platform writes only the consumer's **own** spec to `shared/<subtype>.json`, and the consumer's token cannot read the admin route, so this is the agent's only source. Every embedded field reaches the agent, and whatever the skill copies into the Result is visible to all workspace members. | `AdminSettingConsumerService.GetExpandedSpecForAgentAsync`, `skills/provision-adminsettingconsumer` |
+| **Provider-scope credentials** | The consumer's ticket runs in its **own** workspace, so its agent gets that workspace's provider scopes (from its `spec.scopeIds`), never the Admin Workspace's. If the consumer needs credentials, attach them to the tenant workspace as for any workspace resource. | none needed |
+| **Admin row goes away** | Decide and implement it. The sample **blocks**: the admin service's `ValidateCanDeprovisionAsync` (also what `GET can-deprovision` reports) and `OnBeforeDeleteAsync` count consumers across **all** workspaces through `IRepository<TConsumer>` and throw while any reference the row. The alternative — deprovisioning consumers first — needs an orchestrator; the SDK's `GuardNoChildrenAsync` is the same count with parent/child wording. The consumer's skill still fails cleanly when the embedded row is `null`. | `AdminSettingService.GuardNotInUseAsync` |
+| **Admin row changes** | An update to the admin row does not re-provision its consumers: each consumer applied what it embedded at its own provisioning time. Re-provision consumers yourself if that matters. | — |
+
+```csharp
+// The consumer's service: embed the admin row the agent needs (the base serializes this resource only).
+public override async Task<string> GetExpandedSpecForAgentAsync(AdminSettingConsumer resource, CancellationToken ct)
+{
+    var json = JsonNode.Parse(await base.GetExpandedSpecForAgentAsync(resource, ct))!.AsObject();
+    var setting = resource.Spec?.AdminSettingId is { } id ? await FindAdminSettingAsync(id, ct) : null;   // filters on the Admin Workspace
+    json["adminSetting"] = setting == null ? null : new JsonObject
+    {
+        ["id"] = setting.Id, ["name"] = setting.Name, ["status"] = setting.Status.ToString(),
+        ["settingKey"] = setting.Spec?.SettingKey, ["settingValue"] = setting.Spec?.SettingValue,
+    };
+    return json.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+}
+```
+
+**One remote, several top-level resources.** Every `frontend.routes[]` entry mounts the same `./Extension`
+routes, so `extensions/admin-settings` and `extensions/admin-setting-consumers` both land on them. The host stamps
+the entry's `resourceType` on the lazy route and the remote's routes inherit it, so the sample's routes carry one
+page per resource type (`data.pages`) and `ResourcePageComponent` renders the one for
+`route.snapshot.data['resourceType']`. A remote with a single top-level resource does not need this.
+
 ## Manifest notes
 
 - Nothing in `resources[]` marks a resource as admin: the controller's route does. Keep the five type names and
@@ -268,4 +308,15 @@ curl -fsS -X POST "$A" -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type:
   -d '{"name":"<name>","spec":{…}}'
 # GET $A/<id> → ownerWorkspaceId is the Admin Workspace (not your workspace); poll until status Complete
 ```
-In the UI, the menu appears only in AI Admin (`/ai/suite/admin/extensions/<seg>`), never in AI DevOps.
+In the UI, the admin menu appears only in AI Admin (`/ai/suite/admin/extensions/<seg>`), never in AI DevOps.
+
+With a consumer, also check the cross-scope rules (`W` = the consumer's workspace route, `<adminId>` = a Complete
+admin row):
+```bash
+W=$DUPLO_BASE/v1/aiservicedesk/user/data/workspaces/$WS/environment/extensions/<consumer-seg>
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "$W" -H "Authorization: Bearer $USER_TOKEN" \
+  -H "Content-Type: application/json" -d '{"name":"bad","spec":{"<ref>":"no-such-id"}}'           # 400 — validation
+curl -fsS -X POST "$W" -H "Authorization: Bearer $USER_TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"<name>","spec":{"<ref>":"<adminId>"}}'                                           # 200 — then Complete
+curl -fsS -H "Authorization: Bearer $ADMIN_TOKEN" "$A/<adminId>/can-deprovision"                # canDeprovision false + the reason while in use
+```

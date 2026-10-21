@@ -1,19 +1,26 @@
-# Admin Settings — an admin-scoped typed extension
+# Admin Settings — an admin-scoped extension and a workspace resource that consumes it
 
-The worked reference for an **admin-scoped** resource. It is the `helloworld` sample with one change of
-scope: the resource is platform-wide configuration that only administrators see and manage, instead of a
-per-workspace resource. Read `../helloworld/README.md` first; this file only covers what differs. The full
-rules are in `.claude/skills/duplo-extension-dev/reference/21-admin-resources.md`.
+The worked reference for **admin extension scope**, in its most common shape: two resources.
+
+- **`AdminSetting` (admin-scoped)** — platform-wide configuration administrators manage in AI Admin. It is the
+  `helloworld` resource with one change of extension scope.
+- **`AdminSettingConsumer` (workspace-scoped)** — what each workspace creates to *use* an admin setting: it picks
+  one, and its agent is provisioned with that setting's details.
+
+Read `../helloworld/README.md` first; this file only covers what differs. The full rules are in
+`.claude/skills/duplo-extension-dev/reference/21-admin-resources.md`.
 
 ```
-backend/    Spec/Result/Resource/Hooks/Service (unchanged shape) + AdminSettingsController : AdminResourcesController
-            + AdminSettingsReadController (read-only workspace view)
-frontend/   Angular 22 Native-Federation remote (list/add/view) calling the ADMIN route; the service never reads the tenant
-skills/     provision-adminsetting — reads settingKey+settingValue, writes summary back via the admin route
-manifest.json  typed resource + skill + an admin-scoped menu tree and route ("scope": "admin")
+backend/    AdminSetting (+ AdminSettingsController : AdminResourcesController, AdminSettingsReadController)
+            AdminSettingConsumer (+ AdminSettingConsumersController : ResourcesController)
+frontend/   Angular 22 Native-Federation remote: admin-setting pages (admin route; read-only on the workspace
+            side) + consumer pages (workspace route); resource-page.component picks the page per mount
+skills/     provision-adminsetting — reads settingKey+settingValue, writes summary back via the ADMIN route
+            provision-adminsettingconsumer — reads the embedded admin setting, writes back via the WORKSPACE route
+manifest.json  both typed resources + skills + an admin menu tree and a workspace one, with their routes
 ```
 
-## What differs from a workspace-scoped resource
+## What differs from a workspace-scoped resource (`AdminSetting`)
 
 | Piece | Workspace resource (`helloworld`) | Admin resource (this sample) |
 |---|---|---|
@@ -30,15 +37,32 @@ manifest.json  typed resource + skill + an admin-scoped menu tree and route ("sc
 | Skill write-back `RES` | `…/user/data/workspaces/<ownerWorkspaceId>/environment/extensions/helloworlds/<id>` | `…/admin/data/environment/extensions/admin-settings/<id>` |
 | Provider-scope credentials | the workspace's provider scopes | only scopes attached to the Admin Workspace and listed in `spec.scopeIds` |
 
-**Read-only workspace view.** Workspace members can also see the settings — read-only, without the value —
+**Read-only workspace view (optional).** Workspace members can also see the settings — read-only, without the value —
 under **AI DevOps → Platform Settings → Admin Settings**. `AdminSettingsReadController` (a plain
 `ControllerBase` with `[Authorize]`) serves `GET`/`GET {id}` on
 `…/user/data/workspaces/{workspaceId}/environment/extensions/admin-settings` and returns `AdminSettingView`
 (name, key, status, timestamps). The same frontend pages read `scope` from the route and hide every action and
-the value there. See `reference/21-admin-resources.md` → "Read-only workspace view".
+the value there. It is a deliberate platform-wide disclosure: every member of every workspace sees every row.
+See `reference/21-admin-resources.md` → "Read-only workspace view".
 
 Entity, spec, result, hooks and service are identical in shape. The provisioning lifecycle (tickets, status,
 results, deprovision) is the same pipeline; the platform grants the agent's token on the admin callback routes.
+
+## The consumer (`AdminSettingConsumer`)
+
+An ordinary workspace resource — workspace route, workspace access node, ticket in its own workspace — plus the
+four things that make the cross-scope link work:
+
+| Concern | Where |
+|---|---|
+| Spec references the admin row: `adminSettingId` | `AdminSettingConsumerSpec` |
+| Create/change is rejected unless that row exists, belongs to the Admin Workspace and is `Complete` | `AdminSettingConsumerService.ValidateSpecAsync` |
+| The add form's picker lists `Complete` settings from the read-only workspace view (members cannot call the admin route) | `consumer/add-admin-setting-consumer.component.ts` |
+| The admin row is embedded as `adminSetting` in `shared/admin-setting-consumer.json` — the platform writes only the consumer's own spec, and its token cannot read the admin route | `AdminSettingConsumerService.GetExpandedSpecForAgentAsync` |
+| An admin setting cannot be deprovisioned or deleted while any workspace's consumer references it | `AdminSettingService.GuardNotInUseAsync` |
+
+The consumer's skill keeps the setting's value out of its Result: workspace members can read the Result, and the
+read-only view hides the value from them on purpose.
 
 ## Requirements
 
@@ -63,7 +87,15 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $USER_TOKEN" 
 curl -fsS -X POST "$A" -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"maintenance-banner","spec":{"settingKey":"maintenance-banner","settingValue":"Back at 18:00 UTC"}}'
 # then poll GET $A/<id> until status is Complete; ownerWorkspaceId is the Admin Workspace, not yours
+
+W=$DUPLO_BASE/v1/aiservicedesk/user/data/workspaces/$WS/environment/extensions/admin-setting-consumers
+curl -s -w '\n%{http_code}\n' -X POST "$W" -H "Authorization: Bearer $USER_TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"bad","spec":{"adminSettingId":"no-such-id"}}'           # 400 "Admin setting 'no-such-id' does not exist."
+curl -fsS -X POST "$W" -H "Authorization: Bearer $USER_TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"banner-for-team-a","spec":{"adminSettingId":"<id>"}}'   # then poll GET $W/<consumerId> until Complete
+curl -fsS -H "Authorization: Bearer $ADMIN_TOKEN" "$A/<id>/can-deprovision"   # canDeprovision false while in use
 ```
 
 In the UI, **AI Admin → Platform Settings → Admin Settings** is the full editor; **AI DevOps → Platform Settings →
-Admin Settings** is the read-only view (no value, no actions).
+Admin Settings** is the read-only view (no value, no actions), and **AI DevOps → Platform Settings → Setting
+Consumers** is where a workspace picks one.
