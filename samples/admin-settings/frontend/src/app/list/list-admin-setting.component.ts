@@ -1,7 +1,9 @@
 import { Component, DestroyRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
-import { FilterTableUtils, SearchableDatatableComponent, SearchableDatatableModule } from '@duplocloud-internal/ng-common-lib';
+import {
+  FilterTableUtils, SearchableDatatableComponent, SearchableDatatableModule, SharedAlertsService, extractErrorMessage,
+} from '@duplocloud-internal/ng-common-lib';
 import { AdminSettingService, AdminSetting, routeScope } from '../admin-setting.service';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
 
@@ -94,6 +96,7 @@ export class ListAdminSettingComponent implements OnInit {
   // list-refresh timer: an admin-scoped list never reads the selected tenant.
   private readonly session = inject<any>('REMOTE_UserSession' as any);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly alerts = inject(SharedAlertsService);
 
   // The <searchable-datatable> owns the search box + term; we read its `searchTerm` when filtering.
   private readonly table = viewChild(SearchableDatatableComponent);
@@ -159,12 +162,17 @@ export class ListAdminSettingComponent implements OnInit {
   }
 
   protected track(r: AdminSetting): void {
-    this.svc.ticketName(r.id).subscribe(name => {
-      if (!name) {
-        return;
-      }
-      // Admin-scoped: the ticket opens under AI Admin.
-      this.router.navigateByUrl(this.svc.ticketChatUrl(name));
+    this.svc.ticketName(r.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: name => {
+        if (!name) {
+          this.alerts.reportError(`'${r.name}' has no provisioning ticket yet.`);
+          return;
+        }
+        // Admin-scoped: the ticket opens under AI Admin.
+        this.router.navigateByUrl(this.svc.ticketChatUrl(name));
+      },
+      // A row action has no form to put the error beside, so it goes to the host's toast.
+      error: err => this.alerts.reportError(extractErrorMessage(err), 'Could not open the provisioning ticket'),
     });
   }
 }

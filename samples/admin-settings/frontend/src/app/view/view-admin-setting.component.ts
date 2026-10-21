@@ -1,8 +1,10 @@
 import { Component, DestroyRef, LOCALE_ID, OnInit, computed, inject, signal } from '@angular/core';
 import { formatDate } from '@angular/common';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
-import { Subscription, interval } from 'rxjs';
-import { CommonLibComponentsModule } from '@duplocloud-internal/ng-common-lib';
+import { timer } from 'rxjs';
+import { exhaustMap, takeWhile, tap } from 'rxjs/operators';
+import { CommonLibComponentsModule, SharedAlertsService, extractErrorMessage } from '@duplocloud-internal/ng-common-lib';
 import { AdminSettingService, AdminSetting, routeScope } from '../admin-setting.service';
 import { StatusBadgeComponent } from '../shared/status-badge.component';
 import { LifecyclePhase, LifecycleRailComponent, RailFact } from '../shared/lifecycle-rail.component';
@@ -28,6 +30,9 @@ import { LifecyclePhase, LifecycleRailComponent, RailFact } from '../shared/life
   imports: [CommonLibComponentsModule, StatusBadgeComponent, LifecycleRailComponent],
   styleUrl: '../shared/detail-page.scss',
   template: `
+    @if (loadError(); as e) {
+      <div class="alert alert-danger py-1 px-2 m-1">Could not load this admin setting: {{ e }}</div>
+    }
     @if (item(); as it) {
       <div class="ext-detail-page">
 
@@ -130,7 +135,7 @@ import { LifecyclePhase, LifecycleRailComponent, RailFact } from '../shared/life
             (track)="track()" />
         </div>
       </div>
-    } @else {
+    } @else if (!loadError()) {
       <div class="text-muted p-2">Loading…</div>
     }
   `,
@@ -148,14 +153,15 @@ export class ViewAdminSettingComponent implements OnInit {
   protected readonly readOnly = this.scope === 'workspace';
   private readonly destroyRef = inject(DestroyRef);
   private readonly locale = inject(LOCALE_ID);
+  private readonly alerts = inject(SharedAlertsService);
 
   protected readonly item = signal<AdminSetting | undefined>(undefined);
   protected readonly view = signal<'spec' | 'result'>('spec');
   protected readonly tracking = signal(false);
   // ngbNav writes this from a template event — a plain field repaints fine under OnPush; don't make it a signal.
   protected activeTab = 'overview';
-
-  private poll?: Subscription;
+  /** Why the GET failed, shown in place of the page (or above it, when a poll fails after the first load). */
+  protected readonly loadError = signal<string | undefined>(undefined);
 
   /** The agent is mid-run: not waiting on the user, not finished, not failed, not tearing down. */
   protected readonly working = computed(() => {
@@ -223,27 +229,26 @@ export class ViewAdminSettingComponent implements OnInit {
     ];
   });
 
+  /**
+   * GET now, then every 3s while the agent is working, so the active phase moves. One stream, tied to the
+   * component: `exhaustMap` skips a tick while the previous GET is still in flight (no pile-up on a slow API),
+   * `takeWhile` ends it at the first non-working status, and `takeUntilDestroyed` ends it on navigation — even
+   * if that happens before the first response.
+   */
   ngOnInit(): void {
-    this.refresh();
-    this.destroyRef.onDestroy(() => this.poll?.unsubscribe());
-  }
-
-  /** GET + a 3s poll while the agent is working, so the active phase moves; the poll stops at a terminal status. */
-  private refresh(): void {
     const id = this.route.snapshot.params['id'];
-    this.svc.get(id, this.scope).subscribe(i => {
-      const first = !this.item();
-      this.item.set(i);
-      if (first) {
-        this.view.set(i?.result?.summary ? 'result' : 'spec');
-      }
-      if (this.working() && !this.poll) {
-        this.poll = interval(3000).subscribe(() => this.refresh());
-      }
-      if (!this.working() && this.poll) {
-        this.poll.unsubscribe();
-        this.poll = undefined;
-      }
+    timer(0, 3000).pipe(
+      exhaustMap(() => this.svc.get(id, this.scope)),
+      tap(i => {
+        if (!this.item()) {
+          this.view.set(i?.result?.summary ? 'result' : 'spec');
+        }
+        this.item.set(i);
+      }),
+      takeWhile(() => this.working()),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe({
+      error: err => this.loadError.set(extractErrorMessage(err)),
     });
   }
 
@@ -266,10 +271,11 @@ export class ViewAdminSettingComponent implements OnInit {
       return;
     }
     this.tracking.set(true);
-    this.svc.ticketName(it.id).subscribe({
+    this.svc.ticketName(it.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: name => {
         this.tracking.set(false);
         if (!name) {
+          this.alerts.reportError(`'${it.name}' has no provisioning ticket yet.`);
           return;
         }
         // Host routes can no-op from a remote — fall back to a hard navigation (reference/16 pitfalls).
@@ -278,7 +284,10 @@ export class ViewAdminSettingComponent implements OnInit {
         this.router.navigateByUrl(url).then(ok => { if (!ok) window.location.assign(url); })
           .catch(() => window.location.assign(url));
       },
-      error: () => this.tracking.set(false),
+      error: err => {
+        this.tracking.set(false);
+        this.alerts.reportError(extractErrorMessage(err), 'Could not open the provisioning ticket');
+      },
     });
   }
 }

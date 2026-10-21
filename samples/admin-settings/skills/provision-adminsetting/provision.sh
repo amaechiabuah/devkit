@@ -17,6 +17,17 @@ RES="$BASE/v1/aiservicedesk/admin/data/environment/extensions/admin-settings/$ID
 
 auth=(-H "Authorization: Bearer $DUPLO_TOKEN" -H "Content-Type: application/json")
 
+# Any failing step from here on reports Failed + a fault before the script exits, so the resource does not
+# sit in Processing until reconciliation flags it as stuck. Best effort: no -f, and its own failure is ignored.
+on_error() {
+  local fault="provision.sh line $1: '$2' failed (exit $3)"
+  trap - ERR
+  curl -sS -X POST "$RES/status" "${auth[@]}" \
+    -d "$(jq -nc --arg f "$fault" '{status:"Failed",faults:[$f]}')" >/dev/null || true
+  echo "$fault" >&2
+}
+trap 'on_error "$LINENO" "$BASH_COMMAND" "$?"' ERR
+
 # 1. Report progress
 curl -fsS -X POST "$RES/status" "${auth[@]}" \
   -d '{"status":"Processing","subStatus":"Applying setting"}'
