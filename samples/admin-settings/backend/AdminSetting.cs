@@ -13,7 +13,7 @@ namespace Duplo.Extension.AdminSettings;
 // An ADMIN-SCOPED first-class resource shipped inside a hot-loaded extension DLL. The entity, hooks and
 // service are exactly what a workspace-scoped resource uses (ResourceBase + ResourceServiceBase); only the
 // controller differs — AdminSettingsController derives from AdminResourcesController, which serves the
-// resource on an admin-only route and makes every row belong to the system Admin Workspace.
+// resource on an admin route and makes every row belong to the system Admin Workspace.
 //
 // Use admin scope for platform-wide configuration an administrator owns, never per-tenant data.
 // Reference: reference/21-admin-resources.md (admin scope end to end), reference/03-base-classes.md.

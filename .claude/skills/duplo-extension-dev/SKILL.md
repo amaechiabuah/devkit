@@ -99,16 +99,23 @@ Settle before building (derive, else ask — **after** listening):
   the **same** value. Never a bare or `clouds/…` segment — [00-naming](reference/00-naming.md) is canonical and the
   build gate enforces it. In a repo that already holds extensions, the name must collide with **no sibling** —
   including the frontend's federation remote `name` and the Mongo `extension_<entity>` collection name.
-- **Scope — workspace or admin** (per resource). **Workspace** (the default) = a tenant's resource, used by
-  workspace members, rendered in AI DevOps. **Admin** = platform-wide configuration only administrators manage
-  (a VPN server, an SSO integration, a notification setting): its controller derives from
-  `AdminResourcesController`, its route is `v1/aiservicedesk/admin/data/environment/extensions/<…>` (no
-  `{workspaceId}`), every row belongs to the system Admin Workspace, and its menu renders in AI Admin. Derive it
-  from the requirement ("only admins", "platform-wide", "global setting" → admin); if unsure, ask; never default to
-  admin. For an admin resource also settle: **which scopes the spec carries** (the Admin Workspace has none, so
-  credentials come only from `spec.scopeIds`), and, for **parent → child**, that the child controller applies the
-  admin overrides itself (there is no admin child controller in the SDK — see reference/21).
-  Admin needs SDK ≥ 1.0.7 — warn if the target's `sdk-version` is older. Full rules:
+- **Extension scope — workspace or admin** (per resource; not the same thing as the *Provider scopes* that carry
+  credentials). **Workspace** (the default) = a tenant's resource, used by workspace members, rendered in AI
+  DevOps. **Admin** = platform-wide configuration administrators manage (a VPN server, an SSO integration, a
+  notification setting): its controller derives from `AdminResourcesController` and carries the usual
+  `[AccessControl(Parent = typeof(Workspace), ParentIdProperty = "OwnerWorkspaceId")]`, its route is
+  `v1/aiservicedesk/admin/data/environment/extensions/<…>` (no `{workspaceId}`), every row belongs to the system
+  Admin Workspace, access is administrators plus anyone granted the Admin Workspace, and its menu renders in AI
+  Admin. Derive it from the requirement ("only admins", "platform-wide", "global setting" → admin); if unsure, ask;
+  never default to admin. For an admin resource also settle:
+  - **which Provider scopes provisioning needs.** The Admin Workspace starts with none: an administrator must
+    first attach them to it (PUT on the Admin Workspace's `scopeIds`), and `spec.scopeIds` must be a subset of
+    those — the platform skips any other id.
+  - **whether workspace resources consume it** (pick it, read its details). That is the common case — model it
+    the way `samples/admin-settings`' `AdminSettingConsumer` does.
+  - for **parent → child**, that the child controller applies the admin overrides itself (there is no admin child
+    controller in the SDK) and is then administrators-only — see reference/21.
+  Admin needs a host SDK that ships `AdminResourcesController`; the build probes for it. Full rules:
   [21-admin-resources](reference/21-admin-resources.md).
 - **Spec fields** — each with name, type, and required/optional. **Result fields** — same.
 - **Provisioning MODE** — decide HOW this resource is provisioned. **Do not default to an agent skill.** Pick by
@@ -148,7 +155,7 @@ Settle before building (derive, else ask — **after** listening):
   | **reconcile/apply multiple** objects with retry (Worker, real infra) | `samples/worker-appstack` | worker-compute (compute-only) |
   | pure **compute**, no cloud/scope (Worker) | `samples/worker-compute` | worker-appstack (real infra) |
   | **observe-only** (No-provision) | `IsProvisioningNeeded => false` ([04-hooks](reference/04-hooks.md)); on-demand actions: `samples/network-stack` | — |
-  | **admin-only, platform-wide** configuration (AI Admin menu, `AdminResourcesController`) | `samples/admin-settings` | `samples/helloworld` (workspace-scoped) |
+  | **admin-managed, platform-wide** configuration (AI Admin menu, `AdminResourcesController`), and workspace resources that consume it | `samples/admin-settings` | `samples/helloworld` (workspace-scoped) |
 
   **Forms tiebreaker:** linear steps, or lots of fields/toggles/repeatable rows → copy from **network-stack**'s wizard;
   a handful of flat fields → **helloworld**. The form axis and the mode axis are independent — pick one row from each.
@@ -173,7 +180,7 @@ Settle before building (derive, else ask — **after** listening):
 
 **Present the settled shape for approval** (local: the plan you `ExitPlanMode` with; in-platform: the `Processing`
 summary you post) **as a structured shape, not a prose blurb:** a **Spec** field table (name · type ·
-required/optional), a **Result** field table (name · type), the **scope** (workspace / admin) and the **provisioning mode**, each with a one-line reason, the
+required/optional), a **Result** field table (name · type), the **extension scope** (workspace / admin) and the **provisioning mode**, each with a one-line reason, the
 **detail view's shape** — the **lifecycle phases** this resource goes through (label + the status/result field that
 drives each; [19-detail-page](reference/19-detail-page.md) → "Deriving phases") and the **Result tabs** (Overview at
 minimum; name each further tab; [17-custom-result-views](reference/17-custom-result-views.md)) — and a short
@@ -220,8 +227,9 @@ Adapt inside `extensions/<name>/` — rename `HelloWorld`→`<Name>` consistentl
   convention; the manifest never references the controller type). Custom endpoints per [05](reference/05-custom-actions.md).
   **Admin scope:** derive from `AdminResourcesController<…>`
   (`using Duplo.Ai.DataManagement.Controllers.Admin.Resource;`) and route it at
-  `v1/aiservicedesk/admin/data/environment/<restSegment>` — no `{workspaceId}`, and **no** workspace access-node
-  declaration (AI Admin routes are admin-only and administrators bypass hierarchical access)
+  `v1/aiservicedesk/admin/data/environment/<restSegment>` — no `{workspaceId}`, and **the same** access-node
+  declaration as a workspace controller (mandatory: access follows the Admin Workspace's grants, and the host
+  rejects an admin controller whose entity is not a registered node)
   ([21](reference/21-admin-resources.md#backend), worked example `samples/admin-settings`).
 - `backend/Duplo.Extension.HelloWorld.csproj` — rename to `Duplo.Extension.<Name>.csproj` (keep the SDK
   PackageReference `ExcludeAssets="runtime"` + `nuget.config`).
@@ -240,7 +248,7 @@ Adapt inside `extensions/<name>/` — rename `HelloWorld`→`<Name>` consistentl
   `tickets/<ws>/origin-context`), and link it to `/ai/suite/admin/tickets/chat/<name>` — never the
   service-desk route, which rejects the hidden Admin Workspace.
 - `manifest.json` — `id`, `version`, `backend.{assemblyDir=<id>/<version>/backend, entryAssembly}`,
-  the `resources[]` entry (`archetype:"typed"`, `registrar:"DevOpsResource"`, + the five FQ type names),
+  the `resources[]` entry (`archetype:"typed"` + the five FQ type names; there is no `registrar` field),
   `skills`/`skillMappings` (**Agent mode only** — omit for Worker/Passthrough/No-provision), `frontend`. **Admin scope:** add `"scope": "admin"` to the top-level `menus[]` node and to each
   `routes[]` entry that tree links to (`path`/`relativeUrl` stay `extensions/<…>`). The build gate checks the
   controller route, the `scope` values, menu↔route scope parity, and that the FE calls the admin route.
@@ -360,7 +368,7 @@ backend code** ([06](reference/06-registration.md#reloading-changed-code--bump-m
   with the resource-scoped `$DUPLO_TOKEN` — that token is not authorized for arbitrary routes and will
   return 403/404 even though the extension loaded fine.
 - **Local (admin token):** you may confirm the live route directly: `GET …/environment/<restSegment>` → 200
-  (admin scope: `GET …/admin/data/environment/<restSegment>` → 200 for an admin, 403 for a non-admin, created
+  (admin extension scope: `GET …/admin/data/environment/<restSegment>` → 200 for an admin, 403 for a user without an Admin Workspace grant, created
   rows are owned by the Admin Workspace, not your workspace, and the menu shows only in AI Admin),
   and `GET …/admin/extensions` lists it. Create one → it persists to its `extension_<entity>` collection, fires a
   provisioning ticket (Agent mode), your skill runs and fills the Result. (Teardown: `DELETE …/admin/extensions/{id}`

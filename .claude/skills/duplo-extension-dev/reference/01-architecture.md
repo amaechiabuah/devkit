@@ -10,8 +10,8 @@ A resource is a typed entity with a **spec** (desired inputs) and a **result** (
 through a lifecycle by a **provisioner**. The platform gives you, for free:
 
 - **Workspace (tenant) multitenancy** — every resource has `OwnerWorkspaceId`; routes are workspace-scoped.
-  An **admin-scoped** resource (`AdminResourcesController`) instead lives on an admin-only route with no workspace,
-  and its `OwnerWorkspaceId` is always the system Admin Workspace — same pipeline otherwise
+  An **admin-scoped** resource (`AdminResourcesController`) instead lives on an admin route with no workspace,
+  its `OwnerWorkspaceId` is always the system Admin Workspace, and access follows that workspace's grants — same pipeline otherwise
   ([21-admin-resources.md](21-admin-resources.md)).
 - **Persistence** — its own Mongo collection (`[BsonCollection]`), optimistic concurrency (`Version`).
 - **A REST surface** — full CRUD + `status`/`results`/`deprovision` (inherited).

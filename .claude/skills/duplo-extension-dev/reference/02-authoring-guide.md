@@ -14,7 +14,7 @@ For a top-level resource you write (rename `HelloWorld` to your resource):
 | | `HelloWorld` | `ResourceBase<Spec,Result>` | `[BsonCollection("extension_…")]`, `GetTicketOriginType()`, `GetTicketOriginSubType()` |
 | | `HelloWorldHooks` | `DefaultEntityHooks<>` (or `ResourceHooksBase<>`) | nothing, or `GetImmutableSpecFields`/`GetDeletableStatuses` |
 | | `HelloWorldService` | `ResourceServiceBase<Entity,Spec,Result>` | usually nothing (ctor only) |
-| `backend/HelloWorldController.cs` | `HelloWorldsController` | `ResourcesController<Entity,Spec,Result>` — or `AdminResourcesController<Entity,Spec,Result>` for an [admin-scoped](21-admin-resources.md) resource | the `[Route]` + the access-node declaration `[AccessControl(Parent = typeof(Workspace), ParentIdProperty = "OwnerWorkspaceId")]` ([18-access-control](18-access-control.md)); an admin-scoped controller declares no access node |
+| `backend/HelloWorldController.cs` | `HelloWorldsController` | `ResourcesController<Entity,Spec,Result>` — or `AdminResourcesController<Entity,Spec,Result>` for an [admin-scoped](21-admin-resources.md) resource | the `[Route]` + the access-node declaration `[AccessControl(Parent = typeof(Workspace), ParentIdProperty = "OwnerWorkspaceId")]` ([18-access-control](18-access-control.md)); an admin-scoped controller carries the same declaration (mandatory) |
 
 Every concrete Spec/Result/entity carries `[BsonIgnoreExtraElements]` ([12](12-enrichment-and-live-state.md)).
 The skeleton is in [03-base-classes.md](03-base-classes.md#minimal-typed-resource-what-an-extension-ships)
@@ -73,7 +73,7 @@ Ties the bundle together. For a typed extension (see the hello-world manifest):
                "entryAssembly": "Duplo.Extension.HelloWorld.dll" },
   "resources": [{
     "ticketOriginType": "HelloWorld", "restSegment": "extensions/helloworlds", "subType": "hello-world",
-    "archetype": "typed", "registrar": "DevOpsResource",
+    "archetype": "typed",
     "entityType": "Duplo.Extension.HelloWorld.HelloWorld",
     "specType":   "Duplo.Extension.HelloWorld.HelloWorldSpec",
     "resultType": "Duplo.Extension.HelloWorld.HelloWorldResult",

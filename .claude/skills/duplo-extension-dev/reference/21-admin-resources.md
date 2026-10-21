@@ -2,34 +2,44 @@
 
 Every resource is **workspace-scoped** by default: it lives under a tenant's workspace, any member of that
 workspace can use it, and it renders in AI DevOps. An **admin-scoped** resource is platform-wide configuration
-that only administrators manage: it has no workspace in its route, every row belongs to the system **Admin
-Workspace**, and it renders in AI Admin. Worked example: [`samples/admin-settings`](../../../../samples/admin-settings).
+that administrators manage: it has no workspace in its route, every row belongs to the system **Admin
+Workspace**, access follows that workspace's permission-set grants, and it renders in AI Admin. Worked example:
+[`samples/admin-settings`](../../../../samples/admin-settings).
 
-> **Requires SDK 1.0.7 or later** (the first SDK with `AdminResourcesController`, platform PR
-> duplocloud-internal/duplo-ai-helpdesk#685) **and** a portal with admin extension routes/menus. Against an older
-> SDK the backend does not compile; on an older portal the pages and menu do not appear.
+> "Scope" means two things on this platform. **Extension scope** (this guide) is *workspace* or *admin*: where a
+> resource lives and who manages it; the manifest key for it is `scope`. **Provider scopes** are credentials
+> (AWS, Kubernetes, GitHub…) a workspace holds and a resource names in `spec.scopeIds`
+> ([07-scope-credentials](07-scope-credentials.md)). Always say which one you mean.
 
-## When to choose admin scope
+> **Requires a host SDK that ships `AdminResourcesController`** (platform PR duplocloud-internal/duplo-ai-helpdesk#685)
+> **and** a portal with admin extension routes/menus. Do not compare version numbers — the loader pins an
+> extension to exactly the version the host reports. `scripts/build-extension.sh` probes the host's SDK bundle for
+> the type and fails with a clear message when it is missing; without it the backend does not compile. On an older
+> portal the backend works but the pages and menu do not appear.
+
+## When to choose admin extension scope
 
 | Choose **admin** when the resource… | Keep **workspace** (default) when it… |
 |---|---|
 | configures the platform itself, or a system every tenant shares (a VPN server, an SSO/identity integration, a licence or notification setting) | belongs to one tenant/team (a cluster, a database, a deployment) |
-| must be visible and editable by administrators only | should be usable by workspace members |
+| is managed by administrators (and whoever they grant the Admin Workspace) | should be usable by workspace members |
 | has exactly one owner — the platform | is created many times, once per workspace |
 
 Ask this per resource in Phase 1. If unsure, it is workspace-scoped. An extension may mix both: one admin
-resource and several workspace resources.
+resource and several workspace resources — the most common shape is a workspace resource that *consumes* an
+admin one (see [Workspace resources that consume an admin resource](#workspace-resources-that-consume-an-admin-resource)).
 
 ## What changes (and what does not)
 
-Only the **controller**, the **URLs** that point at it, and the **frontend `scope`** change. The entity, spec,
-result, hooks and service are identical in shape, and the provisioning lifecycle is the same pipeline.
+Only the **controller**, the **URLs** that point at it, and the **frontend extension scope** change. The entity,
+spec, result, hooks and service are identical in shape, and the provisioning lifecycle is the same pipeline.
 
 | Piece | Workspace | Admin |
 |---|---|---|
 | Controller base | `ResourcesController<T,TSpec,TResult>` | `AdminResourcesController<T,TSpec,TResult>` (`Duplo.Ai.DataManagement.Controllers.Admin.Resource`) |
 | Controller `[Route]` | `v1/aiservicedesk/user/data/workspaces/{workspaceId}/environment/extensions/<seg>` | `v1/aiservicedesk/admin/data/environment/extensions/<seg>` |
-| Access | workspace members (and admins) | **administrators only** |
+| Access-node declaration | `[AccessControl(Parent = typeof(Workspace), ParentIdProperty = "OwnerWorkspaceId")]` | **the same** — mandatory; the node sits under the Admin Workspace |
+| Access | workspace members (per their grants), and admins | administrators, plus any user granted the Admin Workspace (per verb) |
 | `OwnerWorkspaceId` | the route's workspace | the system Admin Workspace, set by the platform (never sent by the frontend or skill) |
 | FE service `base()` | `/v1/aiservicedesk/user/data/workspaces/${tenant}/environment/${REST_SEGMENT}` | `/v1/aiservicedesk/admin/data/environment/${REST_SEGMENT}` |
 | FE `REMOTE_UserSession` | needed (reads the selected tenant) | not needed |
@@ -38,7 +48,7 @@ result, hooks and service are identical in shape, and the provisioning lifecycle
 | Manifest `frontend.routes[]` | no `scope` | `"scope": "admin"` on each route the admin tree links to |
 | Mounted at | `/ai/suite/{tenant}/extensions/<seg>` | `/ai/suite/admin/extensions/<seg>` (behind the admin route guard) |
 | Skill write-back `RES` | `…/user/data/workspaces/<ownerWorkspaceId>/environment/extensions/<seg>/<id>` | `…/admin/data/environment/extensions/<seg>/<id>` |
-| Scope credentials | the workspace's scopes | none, unless the spec lists `scopeIds` |
+| Provider-scope credentials | the workspace's provider scopes | only provider scopes attached to the Admin Workspace **and** listed in `spec.scopeIds` |
 
 The rest of the naming rules ([00-naming](00-naming.md)) still apply: `restSegment`, route `path` and menu
 `relativeUrl` stay `extensions/<feature>-<resource>`; the collection stays `extension_<entity>`.
@@ -46,13 +56,16 @@ The rest of the naming rules ([00-naming](00-naming.md)) still apply: `restSegme
 ## Backend
 
 ```csharp
+using Duplo.Ai.DataManagement.AccessControl;
 using Duplo.Ai.DataManagement.Controllers.Admin.Resource;
+using Duplo.Ai.Model;
 
 [ApiController]
 [Route("v1/aiservicedesk/admin/data/environment/extensions/admin-settings")]
-public class AdminSettingController : AdminResourcesController<AdminSetting, AdminSettingSpec, AdminSettingResult>
+[AccessControl(Parent = typeof(Workspace), ParentIdProperty = "OwnerWorkspaceId")]   // mandatory — see below
+public class AdminSettingsController : AdminResourcesController<AdminSetting, AdminSettingSpec, AdminSettingResult>
 {
-    public AdminSettingController(IEntityService<AdminSetting> service, ILogger<AdminSettingController> logger)
+    public AdminSettingsController(IEntityService<AdminSetting> service, ILogger<AdminSettingsController> logger)
         : base(service, logger) { }
 }
 ```
@@ -62,21 +75,33 @@ public class AdminSettingController : AdminResourcesController<AdminSetting, Adm
   read/update/delete checks ownership against it. Nothing in the extension (controller, frontend, skill) has to
   know that workspace's id. It re-declares the five actions that take a `workspaceId`
   parameter (`can-deprovision`, `deprovision`, `reconcile`, `ticket`, `ticket-status`) so they bind without one.
-  You add nothing but the `[Route]`.
-- **No access-node declaration.** A workspace controller declares
-  `[AccessControl(Parent = typeof(Workspace), ParentIdProperty = "OwnerWorkspaceId")]`
-  ([18-access-control](18-access-control.md)); an admin controller does not. Only administrators reach an admin
-  route, and hierarchical access enforcement lets administrators through, so a node under the Admin Workspace
-  would grant nothing. The `[AccessControl]` filter the base classes carry still attaches as usual.
-- **No `[Authorize]` attribute is needed.** The platform's tenant policy admits only administrators to any path
-  containing `/aiservicedesk/admin`, plus the resource's own provisioning token on its callback routes (below).
+  You add the `[Route]` and the access-node declaration.
+- **The access-node declaration is mandatory** — the same
+  `[AccessControl(Parent = typeof(Workspace), ParentIdProperty = "OwnerWorkspaceId")]` a workspace controller
+  carries ([18-access-control](18-access-control.md)). Access to an admin resource follows the **Admin
+  Workspace's permission-set grants**: administrators pass, and so does any user whose permission sets grant the
+  Admin Workspace (per verb, with the usual subtree cascade). The node is what those grants are evaluated
+  against, so without it no verb could be checked. Two consequences:
+  - The host **refuses to load** an admin controller whose entity is not a registered access node (the access
+    registry rebuild fails with *"pinned to workspace '…' but serves no registered access node"* and the load is
+    rolled back). The build gate fails such a controller before you get that far.
+  - The resource appears in the permission-set editor under the Admin Workspace, so an administrator can delegate
+    it (e.g. a "VPN operators" permission set) without making anyone an administrator.
+- **No `[Authorize]` attribute is needed** — the base class carries the admin-route access policy, which also
+  admits the resource's own provisioning token on its callback routes (below).
 - **Do not override `GetWorkspaceIdFromRoute()` yourself** on a `ResourcesController`, and never put a workspace
   controller under `admin/…` — the build gate rejects both.
 - **Parent → child:** the SDK has no admin variant of `ChildResourceController`, so an admin child controller
   applies the two overrides itself: `protected override string GetWorkspaceIdFromRoute() => Workspace.AdminWorkspaceId;`
-  plus the five `[BindNever] string? workspaceId` action overrides copied from `AdminResourcesController`, on the
-  route `v1/aiservicedesk/admin/data/environment/extensions/<parent-seg>/{parentId}/<child-seg>`. The build gate
-  checks all six. Worked example: `extensions/vpn/backend/OpenVpnUsersController.cs` in the vpn extension.
+  plus the five `[BindNever] string? workspaceId` action overrides copied from `AdminResourcesController`
+  (`async` overrides are fine), on the route
+  `v1/aiservicedesk/admin/data/environment/extensions/<parent-seg>/{parentId}/<child-seg>`. The build gate checks
+  all six. The child carries its usual Pattern-B node declaration (`Parent = typeof(<ParentEntity>)`).
+  **Limitation:** a child built this way carries no `IFixedWorkspaceMetadata` (only `AdminResourcesController`
+  does), so the access policy keeps it **administrators-only** and hierarchical filtering never sees the Admin
+  Workspace. A user granted the Admin Workspace can manage the parent but gets **403 on its children**. If
+  delegated users must manage children, model them as a second top-level admin resource that references the
+  parent by id, until the SDK ships an admin child base.
 - Custom endpoints ([05-custom-actions](05-custom-actions.md)) go on the same controller and inherit the admin
   route and access rule.
 
@@ -86,9 +111,9 @@ Only backend code that steps outside `AdminResourcesController`, and then throug
 `Workspace.AdminWorkspaceId`, never a literal:
 
 - **An admin child controller**, because the SDK has no admin `ChildResourceController` (above).
-- **A workspace-routed controller that reads admin-owned rows**, e.g. the read-only workspace view below, or a
-  self-service endpoint every user may call (the vpn extension's `MyVpnController` lists the caller's own OpenVPN
-  users). Its route resolves to the caller's workspace, so it must filter on
+- **A workspace-routed controller or service that reads admin-owned rows**: the read-only workspace view below,
+  or a workspace resource that consumes an admin one (its `ValidateAsync` and its read-only picker endpoint, both
+  in the sample). Its route resolves to the caller's workspace, so it must filter on
   `OwnerWorkspaceId == Workspace.AdminWorkspaceId` explicitly.
 
 The frontend and the agent skills never need it: every admin route, `ticket-status` included, resolves the
@@ -161,9 +186,11 @@ ticketName(id: string): Observable<string | null> {                    // ticket
 
 ## Read-only workspace view (optional)
 
-Admin rows are invisible to everyone else: `/aiservicedesk/admin` admits only administrators. When workspace
-members need to SEE what administrators provisioned (a VPN endpoint, a maintenance banner), add a second,
-read-only surface on the workspace side. `samples/admin-settings` ships one.
+Admin rows are invisible to anyone without an Admin Workspace grant. When workspace members need to SEE what
+administrators provisioned (a VPN endpoint, a maintenance banner), add a second, read-only surface on the
+workspace side. `samples/admin-settings` ships one. It is **optional**, and it is a **deliberate platform-wide
+disclosure**: it returns every Admin Workspace row of that type to any member of any workspace. Ship it only when
+that is intended, and project only fields every tenant may see.
 
 **Backend — a plain read controller beside the admin one:**
 ```csharp
@@ -204,28 +231,30 @@ public class AdminSettingsReadController : ControllerBase
 
 - Nothing in `resources[]` marks a resource as admin: the controller's route does. Keep the five type names and
   `archetype: "typed"`.
-- `registrar` is ignored by the loader (every resource is registered the same way); omit it in new manifests.
-- `sdkVersion` must be 1.0.7 or later (the build writes the host's version in).
+- There is no `registrar` field: the backend manifest model does not have one, and no manifest should carry it.
+- `sdkVersion` is written in by the build from the host's `sdk-version`; the build also probes that SDK for
+  `AdminResourcesController` (see the requirement at the top).
 
 ## Build gate
 
 `scripts/build-extension.sh` fails the build when:
 - a controller derives from `AdminResourcesController` but its route is not
-  `v1/aiservicedesk/admin/data/environment/extensions/<…>`;
+  `v1/aiservicedesk/admin/data/environment/extensions/<…>`, or it has no `[AccessControl(…)]` node declaration;
+- the host SDK has no `AdminResourcesController`;
 - a `ResourcesController`/`ChildResourceController` uses an admin route — except a child controller that overrides
   `GetWorkspaceIdFromRoute()`, which must then sit under the admin prefix and override all five workspace actions;
 - a `scope` value is not `workspace` or `admin`, or a non-top-level menu node sets `scope`;
 - a menu link has no `routes[]` entry with the same path and the same scope;
-- the backend is admin-only but no frontend file calls `/v1/aiservicedesk/admin/data/environment/…`.
+- the backend has only admin-scoped controllers but no frontend file calls `/v1/aiservicedesk/admin/data/environment/…`.
 
-It warns when an admin-only extension's skills post to `…/user/data/workspaces/…`.
+It warns when such an extension's skills post to `…/user/data/workspaces/…`.
 
 ## Verify (local, admin token)
 
 ```bash
 A=$DUPLO_BASE/v1/aiservicedesk/admin/data/environment/extensions/<seg>
 curl -fsS -H "Authorization: Bearer $ADMIN_TOKEN" "$A"                                  # 200
-curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $NON_ADMIN_TOKEN" "$A" # 403
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $NON_ADMIN_TOKEN" "$A" # 403 without an Admin Workspace grant
 curl -fsS -X POST "$A" -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"<name>","spec":{…}}'
 # GET $A/<id> → ownerWorkspaceId is the Admin Workspace (not your workspace); poll until status Complete

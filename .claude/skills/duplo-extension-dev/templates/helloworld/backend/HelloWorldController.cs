@@ -15,10 +15,11 @@ namespace Duplo.Extension.HelloWorld;
 /// ApplicationPart and refreshes routes, so this becomes live at
 /// <c>.../environment/extensions/helloworlds</c> with no host restart.
 /// <para>
-/// Admin-scoped resource (platform-wide, administrators only)? Derive from
-/// <c>AdminResourcesController&lt;HelloWorld, HelloWorldSpec, HelloWorldResult&gt;</c>
-/// (<c>using Duplo.Ai.DataManagement.Controllers.Admin.Resource;</c>, SDK 1.0.7+) and route it at
-/// <c>v1/aiservicedesk/admin/data/environment/extensions/helloworlds</c> — no <c>{workspaceId}</c>.
+/// Admin-scoped resource (platform-wide, managed by administrators and anyone granted the Admin Workspace)?
+/// Derive from <c>AdminResourcesController&lt;HelloWorld, HelloWorldSpec, HelloWorldResult&gt;</c>
+/// (<c>using Duplo.Ai.DataManagement.Controllers.Admin.Resource;</c>) and route it at
+/// <c>v1/aiservicedesk/admin/data/environment/extensions/helloworlds</c> — no <c>{workspaceId}</c>. Keep the
+/// <c>[AccessControl]</c> declaration below unchanged: it is mandatory on an admin controller too.
 /// See reference/21-admin-resources.md and samples/admin-settings.
 /// </para>
 /// </summary>

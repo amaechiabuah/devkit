@@ -19,8 +19,8 @@ manifest.json  typed resource + skill + an admin-scoped menu tree and route ("sc
 |---|---|---|
 | Controller base | `ResourcesController<…>` | `AdminResourcesController<…>` |
 | Controller `[Route]` | `v1/aiservicedesk/user/data/workspaces/{workspaceId}/environment/extensions/helloworlds` | `v1/aiservicedesk/admin/data/environment/extensions/admin-settings` |
-| Access-node declaration | `[AccessControl(Parent = typeof(Workspace), …)]` | none — administrators bypass hierarchical access |
-| Who can call it | members of the workspace | administrators only (the platform's tenant policy guards every `/aiservicedesk/admin` route) |
+| Access-node declaration | `[AccessControl(Parent = typeof(Workspace), …)]` | the same — mandatory; the host rejects the load without it |
+| Who can call it | members of the workspace (per their grants) | administrators, plus any user granted the Admin Workspace (per verb) |
 | Row owner (`ownerWorkspaceId`) | the workspace in the route | always the system Admin Workspace, assigned by the platform |
 | FE service base URL | `…/user/data/workspaces/${tenant}/environment/${REST_SEGMENT}` | `…/admin/data/environment/${REST_SEGMENT}` |
 | FE list refresh | `session.getTenantRefreshTimer` (re-fetch on workspace switch) | `session.getRefreshTimer` (no workspace to switch) |
@@ -28,7 +28,7 @@ manifest.json  typed resource + skill + an admin-scoped menu tree and route ("sc
 | Manifest menu tree / route | no `scope` (workspace) | `"scope": "admin"` on the top-level menu node and on the route |
 | Where it renders | AI DevOps, `/ai/suite/{tenant}/extensions/…` | AI Admin, `/ai/suite/admin/extensions/…` |
 | Skill write-back `RES` | `…/user/data/workspaces/<ownerWorkspaceId>/environment/extensions/helloworlds/<id>` | `…/admin/data/environment/extensions/admin-settings/<id>` |
-| Scope credentials | the workspace's scopes | none unless the spec lists `scopeIds` (the Admin Workspace has none) |
+| Provider-scope credentials | the workspace's provider scopes | only scopes attached to the Admin Workspace and listed in `spec.scopeIds` |
 
 **Read-only workspace view.** Workspace members can also see the settings — read-only, without the value —
 under **AI DevOps → Platform Settings → Admin Settings**. `AdminSettingsReadController` (a plain
@@ -42,8 +42,8 @@ results, deprovision) is the same pipeline; the platform grants the agent's toke
 
 ## Requirements
 
-- **SDK 1.0.7 or later** — the first SDK that ships `AdminResourcesController`. Against 1.0.6 the backend does
-  not compile.
+- **A host SDK that ships `AdminResourcesController`** (duplo-ai-helpdesk#685). `build-extension.sh` probes the
+  host's SDK bundle for it and stops with a clear error when it is missing.
 - **A portal with admin extension routes, menus and the AI Admin ticket page** (`scope: "admin"` support). On
   an older portal the backend still works but the pages and menu do not appear.
 
@@ -59,7 +59,7 @@ results, deprovision) is the same pipeline; the platform grants the agent's toke
 ```bash
 A=$DUPLO_BASE/v1/aiservicedesk/admin/data/environment/extensions/admin-settings
 curl -fsS -H "Authorization: Bearer $ADMIN_TOKEN" "$A"                       # 200 for an administrator
-curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $USER_TOKEN" "$A"   # 403 for anyone else
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $USER_TOKEN" "$A"   # 403 without an Admin Workspace grant
 curl -fsS -X POST "$A" -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"maintenance-banner","spec":{"settingKey":"maintenance-banner","settingValue":"Back at 18:00 UTC"}}'
 # then poll GET $A/<id> until status is Complete; ownerWorkspaceId is the Admin Workspace, not yours
