@@ -392,6 +392,18 @@ builder_studio_url() {
 builder_run_direct() {
   local script="$1"; shift
 
+  # The ArmDot license file, checked first so a bad path refuses before anything else touches the runtime.
+  # `-v` reads a relative source as a named volume, so the path is made absolute before it is mounted.
+  local armdot_license=""
+  if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
+    armdot_license="$ARMDOT_LICENSE_FILE_PATH"
+    case "$armdot_license" in /*) ;; *) armdot_license="$PWD/$armdot_license" ;; esac
+    if [ ! -s "$armdot_license" ]; then
+      echo "ERROR: ARMDOT_LICENSE_FILE_PATH names a missing or empty file: $ARMDOT_LICENSE_FILE_PATH" >&2
+      return 1
+    fi
+  fi
+
   # Seeded non-empty on purpose: macOS ships bash 3.2, where expanding an EMPTY array under `set -u`
   # ("${args[@]}") is an unbound-variable error.
   local args
@@ -401,6 +413,11 @@ builder_run_direct() {
   # and the compose path warm the SAME caches rather than each paying for a cold build.
   args+=(-v "duplo_devkit_nuget_$DUPLO_UID:/cache/nuget")
   args+=(-v "duplo_devkit_npm_$DUPLO_UID:/cache/npm")
+
+  # The license mounts read-only at a fixed in-container path, mirroring the compose volume entry.
+  if [ -n "$armdot_license" ]; then
+    args+=(-v "$armdot_license:/run/armdot/license.key:ro")
+  fi
 
   # extra_hosts: the route to a studio that is not on this compose network.
   args+=(--add-host "host.docker.internal:host-gateway")
@@ -427,6 +444,9 @@ builder_run_direct() {
   args+=(-e "DUPLO_HOST=${DUPLO_HOST:-}")
   args+=(-e "DUPLO_TOKEN=${DUPLO_TOKEN:-}")
   args+=(-e "DUPLO_ADMIN_TOKEN=${DUPLO_ADMIN_TOKEN:-}")
+  if [ -n "$armdot_license" ]; then
+    args+=(-e "ARMDOT_LICENSE_FILE_PATH=/run/armdot/license.key")
+  fi
 
   exec "$RUNTIME" "${args[@]}" "$BUILDER_IMAGE" "$script" "$@"
 }
