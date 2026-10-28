@@ -29,7 +29,8 @@ if [ "$(grep -c '^\[assembly: ArmDot.Client\.' "$ATTRS")" = 2 ] \
   && ! grep -qE 'ObfuscateNames|HideStrings|IntegrityChecking' "$ATTRS"; then ok; else bad "attributes"; fi
 
 t "props default ArmDotTreatWarningsAsErrors to true"
-if grep -q "<ArmDotTreatWarningsAsErrors Condition=\"'\$(ArmDotTreatWarningsAsErrors)' == ''\">true</ArmDotTreatWarningsAsErrors>" "$PROPS"; then ok; else bad "warnings default"; fi
+WARN_DEFAULT="<ArmDotTreatWarningsAsErrors Condition=\"'\$(ArmDotTreatWarningsAsErrors)' == ''\">true</ArmDotTreatWarningsAsErrors>"
+if grep -q "$WARN_DEFAULT" "$PROPS"; then ok; else bad "warnings default"; fi
 
 t "targets pass warnings-as-errors from the property, suppress CS 3 and 5, and take the license from ArmDotLicenseFile"
 if grep -q 'TreatAllWarningsAsErrors="\$(ArmDotTreatWarningsAsErrors)"' "$TARGETS" \
@@ -37,7 +38,8 @@ if grep -q 'TreatAllWarningsAsErrors="\$(ArmDotTreatWarningsAsErrors)"' "$TARGET
   && grep -q 'LicenseFile="\$(ArmDotLicenseFile)"' "$TARGETS"; then ok; else bad "task attributes"; fi
 
 t "props run ArmDot only when DuploObfuscate is true, in Release"
-if grep -q "ShouldObfuscate Condition=\"'\$(Configuration)' == 'Release' and '\$(DuploObfuscate)' == 'true'\"" "$PROPS"; then ok; else bad "condition"; fi
+SHOULD_COND="ShouldObfuscate Condition=\"'\$(Configuration)' == 'Release' and '\$(DuploObfuscate)' == 'true'\""
+if grep -q "$SHOULD_COND" "$PROPS"; then ok; else bad "condition"; fi
 
 t "targets name ArmDotLicenseFile in the log message"
 if grep -q 'license file: .\$(ArmDotLicenseFile).' "$TARGETS"; then ok; else bad "message"; fi
