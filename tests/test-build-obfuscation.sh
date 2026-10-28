@@ -32,13 +32,16 @@ EOF
 
 # dotnet: records each call's argv on one line, and on a publish writes the output the script reads next. The
 # baseline publish leaves one host-provided DLL and the extension publish leaves that one plus its own, so the
-# bundle ships exactly the extension's DLL.
+# bundle ships exactly the extension's DLL. Each line also says whether Directory.Build.targets sat beside the
+# project at publish time, since an obfuscation flag without that import would stamp a bundle ArmDot never touched.
+# DOTNET_FAIL_EXT=1 makes the extension publish fail, to exercise cleanup on the failure path.
 cat > "$TMP/bin/dotnet" <<EOF
 #!/usr/bin/env bash
-echo "dotnet \$*" >> "$TMP/calls/dotnet"
+echo "dotnet \$* targets=\$([ -f Directory.Build.targets ] && echo yes || echo no)" >> "$TMP/calls/dotnet"
 out=""; prev=""
 for a in "\$@"; do [ "\$prev" = -o ] && out=\$a; prev=\$a; done
 [ -n "\$out" ] || exit 0
+case "\$*" in *_sdkbaseline.csproj*) ;; *) [ "\${DOTNET_FAIL_EXT:-}" = 1 ] && exit 1 ;; esac
 mkdir -p "\$out" && echo dll > "\$out/Duplo.Ai.Common.dll"
 case "\$*" in *_sdkbaseline.csproj*) ;; *) echo dll > "\$out/Duplo.Extension.HelloWorld.dll" ;; esac
 exit 0
@@ -90,6 +93,14 @@ want="-p:DuploObfuscate=true -p:ArmDotLicenseFile=$TMP/lic.key -p:DuploDevkitBui
 [ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -qF -- "$want" \
   && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet") $(tail -5 "$TMP/build.log")"
 
+t "licensed build: Directory.Build.targets sits beside the csproj while the extension publishes"
+grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q 'targets=yes' && ok || bad "$(cat "$TMP/calls/dotnet")"
+
+t "plain build: no Directory.Build.targets beside the csproj while the extension publishes"
+run_build
+grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q 'targets=no' && ok || bad "$(cat "$TMP/calls/dotnet")"
+run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+
 t "licensed build: the baseline publish is told not to obfuscate"
 grep 'publish _sdkbaseline.csproj' "$TMP/calls/dotnet" | grep -qF -- '-p:DuploObfuscate=false' && ok || bad "$(cat "$TMP/calls/dotnet")"
 
@@ -99,6 +110,10 @@ t "licensed build: the manifest carries the armdot stamp at the pinned version"
 
 t "licensed build: the dropped Directory.Build.targets is removed afterwards"
 [ ! -f "$EXT/backend/Directory.Build.targets" ] && ok || bad "left behind"
+
+t "licensed build whose publish fails: the build fails and the dropped targets file is still removed"
+run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key" DOTNET_FAIL_EXT=1
+[ "$RC" != 0 ] && [ ! -f "$EXT/backend/Directory.Build.targets" ] && ok || bad "rc=$RC"
 
 t "an empty license variable (as compose passes it) is a plain build"
 run_build ARMDOT_LICENSE_FILE_PATH=

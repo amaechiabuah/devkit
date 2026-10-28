@@ -190,8 +190,8 @@ if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
     echo "       so move the extension's own targets into its csproj first." >&2
     exit 1
   fi
-  cp build/Directory.Build.targets.template "$OBF_TARGETS"
   trap 'rm -rf "$BASELINE" 2>/dev/null || true; rm -f "$OBF_TARGETS"' EXIT
+  cp build/Directory.Build.targets.template "$OBF_TARGETS"
   OBFUSCATE=1
   OBFUSCATE_PROPS=(-p:DuploObfuscate=true -p:ArmDotLicenseFile="$ARMDOT_LICENSE_FILE_PATH" -p:DuploDevkitBuildDir="$PWD/build/")
   echo "==> Obfuscating the extension assembly with ArmDot $ARMDOT_VERSION"
@@ -235,8 +235,8 @@ cat > "$BASELINE/_sdkbaseline.csproj" <<EOF
 </Project>
 EOF
 echo 'namespace _SdkBaseline; internal sealed class _ {}' > "$BASELINE/_.cs"
-# Never obfuscated: the baseline only lists what the host provides, and ArmDot would fail it for having nothing to
-# protect. It sits under backend/, so the Directory.Build.targets dropped there reaches it unless told otherwise.
+# Never obfuscated, since the baseline only lists what the host provides. It sits under backend/, so the
+# Directory.Build.targets dropped there reaches it unless told otherwise.
 if ! ( cd "$BASELINE" && dotnet publish _sdkbaseline.csproj -c Release -o ./out -p:DuploSdkVersion="$SDK_VER" \
          -p:DuploObfuscate=false ) > "$BASELINE/publish.log" 2>&1; then
   echo "ERROR: failed to compute the host-provided SDK closure (baseline publish):" >&2
