@@ -72,12 +72,11 @@ uses to load an extension.
 Obfuscation runs when `ARMDOT_LICENSE_FILE_PATH` names an ArmDot license file, and only for Release builds.
 `build-extension.sh` passes the license into the builder container and drops a temporary
 `Directory.Build.targets` beside the extension's csproj, so the extension's own project file never changes. An
-extension that already has a `Directory.Build.targets` in its `backend/` directory is refused, since the build
-would overwrite it.
+extension that already has its own `Directory.Build.targets` in its `backend/` directory is refused, since the
+build would overwrite it. A relative license path is taken relative to the directory you run the script from.
 
-A license problem fails the build rather than ship an unprotected or expiring assembly. A path naming a
-missing or empty file is refused before anything compiles. A file ArmDot cannot use falls back to its demo
-mode, whose warning the build treats as an error.
+A license problem fails the build rather than ship an unprotected or expiring assembly. A path that does not name
+a non-empty file is refused before anything compiles. A license file ArmDot rejects fails the build too.
 
 An obfuscated bundle's `manifest.json` carries `"obfuscation": {"tool": "armdot", "version": "<engine
 version>"}`, and a plain bundle carries no `obfuscation` key, so a release step can tell the two apart. The

@@ -62,14 +62,16 @@ ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' build/ArmDo
 # run_build [env...]: copies the sample into the checkout (the script refuses paths outside it), builds it natively
 # with the given environment, and leaves its exit code in RC and its bundle manifest at $TMP/manifest.json.
 EXT="samples/.test-build-obfuscation"
+# RUN_FROM=<dir> runs the script from that directory instead of the repo root, to test relative license paths.
 run_build() {
   rm -rf "$EXT" "$TMP/manifest.json"; : > "$TMP/calls/dotnet"
   cp -R samples/helloworld "$EXT"
+  rm -rf "$EXT/dist" "$EXT/backend/obj" "$EXT/backend/bin" "$EXT/frontend/node_modules" "$EXT/frontend/dist"
   [ -n "${PRESET_TARGETS:-}" ] && echo "$PRESET_TARGETS" > "$EXT/backend/Directory.Build.targets"
   [ -n "${PRESET_MANIFEST_KEY:-}" ] && jq '.obfuscation = {tool: "armdot", version: "0.0.0"}' samples/helloworld/manifest.json \
     > "$EXT/manifest.json"
-  env -u ARMDOT_LICENSE_FILE_PATH DUPLO_TARGET=remote DUPLO_HOST=http://stub.invalid DUPLO_TOKEN=t "$@" \
-    ./scripts/build-extension.sh --native "$EXT" > "$TMP/build.log" 2>&1
+  ( cd "${RUN_FROM:-.}" && env -u ARMDOT_LICENSE_FILE_PATH DUPLO_TARGET=remote DUPLO_HOST=http://stub.invalid DUPLO_TOKEN=t "$@" \
+    "$ROOT/scripts/build-extension.sh" --native "$EXT" ) > "$TMP/build.log" 2>&1
   RC=$?
   [ -f "$EXT/dist/pkg/manifest.json" ] && cp "$EXT/dist/pkg/manifest.json" "$TMP/manifest.json"
 }
@@ -129,6 +131,22 @@ t "a Directory.Build.targets the extension already owns is never overwritten"
 PRESET_TARGETS='<Project/>' run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
 [ "$RC" != 0 ] && [ "$(cat "$EXT/backend/Directory.Build.targets")" = '<Project/>' ] && [ ! -s "$TMP/calls/dotnet" ] \
   && ok || bad "rc=$RC"
+
+t "a leftover Directory.Build.targets identical to the template is treated as ours and the build proceeds"
+PRESET_TARGETS="$(cat build/Directory.Build.targets.template)" run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+[ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q 'targets=yes' \
+  && [ ! -f "$EXT/backend/Directory.Build.targets" ] && ok || bad "rc=$RC $(tail -3 "$TMP/build.log")"
+
+t "a license path naming a directory is refused before any dotnet call"
+run_build ARMDOT_LICENSE_FILE_PATH="$TMP"
+[ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'names a missing or empty file' "$TMP/build.log" \
+  && ok || bad "rc=$RC $(tail -3 "$TMP/build.log")"
+
+t "a relative license path is taken relative to where the script was run, not the repo root"
+mkdir -p "$TMP/elsewhere" && echo k > "$TMP/elsewhere/rel.key"
+RUN_FROM="$TMP/elsewhere" run_build ARMDOT_LICENSE_FILE_PATH=rel.key
+[ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" \
+  | grep -qF -- "-p:ArmDotLicenseFile=$TMP/elsewhere/rel.key" && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet") $(tail -3 "$TMP/build.log")"
 
 t "a stale obfuscation key in the source manifest is dropped by a plain build"
 PRESET_MANIFEST_KEY=1 run_build

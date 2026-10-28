@@ -45,7 +45,8 @@ rc=$?
 rm -rf obj bin
 out2=$(dotnet build -c Release -o out-guard2 -nologo -v q -p:DuploObfuscate=true -p:ArmDotLicenseFile=/nonexistent 2>&1)
 rc2=$?
-if [ "$rc" -ne 0 ] && grep -q 'treated as an error: warning ARMDOT0002' <<<"$out" && [ "$rc2" -ne 0 ] && [ ! -e out-guard2/Probe.dll ]; then ok
+if [ "$rc" -ne 0 ] && grep -q 'treated as an error: warning ARMDOT0002' <<<"$out" \
+  && [ "$rc2" -ne 0 ] && [ ! -e out-guard2/Probe.dll ]; then ok
 else bad "guard (rc=$rc rc2=$rc2): $(head -c 600 <<<"$out")"; fi
 
 echo "passed=$PASS failed=$FAIL"

@@ -13,6 +13,11 @@
 #
 # Usage: ./scripts/build-extension.sh [--native] <extension-dir>   # e.g. ./extension or samples/helloworld
 set -euo pipefail
+# _builder.sh is sourced before the cd so the license path resolves against the caller's directory, not the repo
+# root. It defines functions only, and builder_dispatch (below) is what needs _target.sh sourced first.
+# shellcheck source=scripts/_builder.sh
+source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in the builder container
+builder_resolve_license || exit 1
 cd "$(dirname "$0")/.."
 
 # Strip --native before the positional arg is read, so it works in either order.
@@ -22,8 +27,6 @@ DIR="${1:?usage: build-extension.sh [--native] <extension-dir>}"
 DIR="${DIR%/}"
 # shellcheck source=scripts/_target.sh
 source "$(dirname "$0")/_target.sh"   # → BASE_URL (+ TOKEN) from .env / env per DUPLO_TARGET
-# shellcheck source=scripts/_builder.sh
-source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in the builder container
 # shellcheck source=scripts/_sdk_digest.sh
 source "$(dirname "$0")/_sdk_digest.sh"  # → sdk_digest, stamped into the bundle manifest beside sdkVersion
 BASE_URL="${BASE_URL%/}"               # tolerate a trailing slash in DUPLO_HOST (avoids // in URLs)
@@ -181,11 +184,12 @@ OBFUSCATE=0
 OBFUSCATE_PROPS=(-p:DuploObfuscate=false)
 OBF_TARGETS="$DIR/backend/Directory.Build.targets"
 if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
-  [ -s "$ARMDOT_LICENSE_FILE_PATH" ] \
-    || { echo "ERROR: ARMDOT_LICENSE_FILE_PATH names a missing or empty file: $ARMDOT_LICENSE_FILE_PATH" >&2; exit 1; }
+  # Already absolute and checked by builder_resolve_license at the top, before the cd.
   ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' build/ArmDot.Obfuscation.props)"
   [ -n "$ARMDOT_VERSION" ] || { echo "ERROR: no ArmDotEngineVersion in build/ArmDot.Obfuscation.props" >&2; exit 1; }
-  if [ -e "$OBF_TARGETS" ]; then
+  # A file identical to the template is this script's own leftover from a killed build, so it is replaced. Anything
+  # else is the extension's own and is never overwritten.
+  if [ -e "$OBF_TARGETS" ] && ! cmp -s build/Directory.Build.targets.template "$OBF_TARGETS"; then
     echo "ERROR: $OBF_TARGETS already exists. The obfuscation import is dropped there for the build," >&2
     echo "       so move the extension's own targets into its csproj first." >&2
     exit 1
