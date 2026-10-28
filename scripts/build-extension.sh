@@ -173,8 +173,33 @@ BASELINE="$DIR/backend/_sdkbaseline"
 rm -rf "$BASELINE"
 trap 'rm -rf "$BASELINE" 2>/dev/null || true' EXIT
 
+# ArmDot obfuscation of the extension's own assembly, on only when ARMDOT_LICENSE_FILE_PATH names a license. The
+# builder container receives an empty value when the host set none, so -n is the test, not "is set". The import
+# rides in through a Directory.Build.targets dropped beside the csproj for this one build, so the extension's own
+# project file never changes. build/ArmDot.Obfuscation.props has why only two ArmDot features are on.
+OBFUSCATE=0
+OBFUSCATE_PROPS=(-p:DuploObfuscate=false)
+OBF_TARGETS="$DIR/backend/Directory.Build.targets"
+if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
+  [ -s "$ARMDOT_LICENSE_FILE_PATH" ] \
+    || { echo "ERROR: ARMDOT_LICENSE_FILE_PATH names a missing or empty file: $ARMDOT_LICENSE_FILE_PATH" >&2; exit 1; }
+  ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' build/ArmDot.Obfuscation.props)"
+  [ -n "$ARMDOT_VERSION" ] || { echo "ERROR: no ArmDotEngineVersion in build/ArmDot.Obfuscation.props" >&2; exit 1; }
+  if [ -e "$OBF_TARGETS" ]; then
+    echo "ERROR: $OBF_TARGETS already exists. The obfuscation import is dropped there for the build," >&2
+    echo "       so move the extension's own targets into its csproj first." >&2
+    exit 1
+  fi
+  cp build/Directory.Build.targets.template "$OBF_TARGETS"
+  trap 'rm -rf "$BASELINE" 2>/dev/null || true; rm -f "$OBF_TARGETS"' EXIT
+  OBFUSCATE=1
+  OBFUSCATE_PROPS=(-p:DuploObfuscate=true -p:ArmDotLicenseFile="$ARMDOT_LICENSE_FILE_PATH" -p:DuploDevkitBuildDir="$PWD/build/")
+  echo "==> Obfuscating the extension assembly with ArmDot $ARMDOT_VERSION"
+fi
+
 echo "==> Building backend ($(basename "$CSPROJ"))"
-( cd "$DIR/backend" && dotnet publish "$(basename "$CSPROJ")" -c Release -o ../dist/backend -p:DuploSdkVersion="$SDK_VER" )
+( cd "$DIR/backend" && dotnet publish "$(basename "$CSPROJ")" -c Release -o ../dist/backend -p:DuploSdkVersion="$SDK_VER" \
+    "${OBFUSCATE_PROPS[@]}" )
 
 echo "==> Building frontend"
 # Strict install, matching the host portal. Where a dependency has no Angular 22 release (ngx-toastr,
@@ -210,7 +235,10 @@ cat > "$BASELINE/_sdkbaseline.csproj" <<EOF
 </Project>
 EOF
 echo 'namespace _SdkBaseline; internal sealed class _ {}' > "$BASELINE/_.cs"
-if ! ( cd "$BASELINE" && dotnet publish _sdkbaseline.csproj -c Release -o ./out -p:DuploSdkVersion="$SDK_VER" ) > "$BASELINE/publish.log" 2>&1; then
+# Never obfuscated: the baseline only lists what the host provides, and ArmDot would fail it for having nothing to
+# protect. It sits under backend/, so the Directory.Build.targets dropped there reaches it unless told otherwise.
+if ! ( cd "$BASELINE" && dotnet publish _sdkbaseline.csproj -c Release -o ./out -p:DuploSdkVersion="$SDK_VER" \
+         -p:DuploObfuscate=false ) > "$BASELINE/publish.log" 2>&1; then
   echo "ERROR: failed to compute the host-provided SDK closure (baseline publish):" >&2
   tail -20 "$BASELINE/publish.log" >&2
   exit 1
@@ -239,9 +267,12 @@ rm -rf "$PKG"; mkdir -p "$PKG/backend" "$PKG/fe" "$PKG/skills"
 # Both are always <id>/<version>/…, so compute them here instead of trusting the checked-in values. The skill
 # tail varies per entry (skills/<name>), so only the first two segments are replaced; a manifest with no
 # skills array is left alone rather than given an empty one.
-jq --arg v "$SDK_VER" --arg d "$SDK_DIGEST" '
+# The obfuscation stamp says what this build did, so a stale one in the source manifest never survives: an
+# obfuscated build overwrites it and a plain build removes it. A release step reads it to refuse an unprotected build.
+jq --arg v "$SDK_VER" --arg d "$SDK_DIGEST" --arg ob "$([ "$OBFUSCATE" = 1 ] && echo "$ARMDOT_VERSION")" '
     .sdkVersion = $v
   | .sdkDigest = $d
+  | if $ob != "" then .obfuscation = {tool: "armdot", version: $ob} else del(.obfuscation) end
   | .backend.assemblyDir = (.id + "/" + .version + "/backend")
   | .id as $i | .version as $r
   | if (.skills | type) == "array" then
