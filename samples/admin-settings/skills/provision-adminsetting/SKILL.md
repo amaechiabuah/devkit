@@ -30,7 +30,7 @@ read spec  ->  POST status Processing (+ progressive subStatus)  ->  do the work
   none.
 
 Write-back base: `RES=${DUPLO_BASE:-$DUPLO_HOST}/v1/aiservicedesk/admin/data/environment/extensions/admin-settings/<id>`
-(the resource's OWN admin route — it must equal the `AdminSettingController` `[Route]`). Never post to the
+(the resource's OWN admin route — it must equal the `AdminSettingsController` `[Route]`). Never post to the
 `…/user/data/workspaces/…` form: the token does not cover it and no such controller exists.
 
 ## Steps
