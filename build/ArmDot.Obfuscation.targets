@@ -1,7 +1,11 @@
 <Project>
   <Import Project="$(MSBuildThisFileDirectory)ArmDot.Obfuscation.props" />
   <!-- Warnings stay errors unless ArmDotTreatWarningsAsErrors is set to false. Treating warnings as errors guards
-       the license: a build that cannot apply the license fails rather than ship unprotected. -->
+       the license, so a build that cannot apply the license fails rather than ship unprotected. The NoWarn on the
+       task below suppresses only ARMDOT0003 (no methods were selected for protection) and ARMDOT0005 (a feature is
+       unsupported on the platform or method type). Both are expected here, since only control-flow obfuscation and
+       virtualization are enabled. Neither names the license warning, so the guard still fires. Keep it that way on
+       an ArmDot version bump. -->
   <Target Name="ArmDotProtect" AfterTargets="AfterCompile" BeforeTargets="BeforePublish" Condition="'$(ShouldObfuscate)' == 'true'">
     <ItemGroup>
       <ArmDotInputs Include="$(ProjectDir)$(IntermediateOutputPath)$(TargetFileName)" />
