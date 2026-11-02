@@ -86,7 +86,9 @@ public class AdminSettingsController : AdminResourcesController<AdminSetting, Ad
     registry rebuild fails with *"pinned to workspace '…' but serves no registered access node"* and the load is
     rolled back). The build gate fails such a controller before you get that far.
   - The resource appears in the permission-set editor under the Admin Workspace, so an administrator can delegate
-    it (e.g. a "VPN operators" permission set) without making anyone an administrator.
+    it (e.g. a "Settings operators" permission set) without making anyone an administrator. **Delegate
+    narrowly:** a whole-subtree or all-verb rule on the Admin Workspace covers every admin resource on the host,
+    not just this extension's. Grant those only to administrators, and delegate single admin resources otherwise.
 - **No `[Authorize]` attribute is needed** — the base class carries the admin-route access policy, which also
   admits the resource's own provisioning token on its callback routes (below).
 - **Do not override `GetWorkspaceIdFromRoute()` yourself** on a `ResourcesController`, and never put a workspace
@@ -250,13 +252,14 @@ ships the pair: `AdminSetting` (admin) and `AdminSettingConsumer` (workspace).
 | **Validation** | In `ValidateSpecAsync` (create, and update when the id changes), check that the row exists, `OwnerWorkspaceId == Workspace.AdminWorkspaceId`, and `Status == Complete`. Throw `ArgumentException` — the reason reaches the form ([15](15-error-handling.md)). | `AdminSettingConsumerService.ValidateSpecAsync` |
 | **Reading admin rows** | Inject `IRepository<TAdmin>` into the consumer's service: every resource of an extension shares one container, so the repository resolves. Use the repository, not `IEntityService<TAdmin>` — this runs in a workspace request, and you filter on the owner yourself. | the service's constructor |
 | **Picker** | The add form lists admin rows from a **workspace** endpoint — workspace members cannot call the admin route — and offers only `Complete` ones (plus, on edit, the current choice). The read-only workspace view above is that endpoint; project only what members may see. | `AdminSettingsReadController`, `add-admin-setting-consumer.component.ts` |
-| **Agent input** | Override `GetExpandedSpecForAgentAsync` and embed the admin row. The platform writes only the consumer's **own** spec to `shared/<subtype>.json`, and the consumer's token cannot read the admin route, so this is the agent's only source. Every embedded field reaches the agent, and whatever the skill copies into the Result is visible to all workspace members. | `AdminSettingConsumerService.GetExpandedSpecForAgentAsync`, `skills/provision-adminsettingconsumer` |
+| **Agent input** | Override `GetExpandedSpecForAgentAsync` and embed the admin row. The platform writes only the consumer's **own** spec to `shared/<subtype>.json`, and the consumer's token cannot read the admin route, so this is the agent's only source. Every embedded field reaches the agent and is **readable by anyone who can chat with the consumer's ticket** (workspace members, via the view's Ask agent button), and whatever the skill copies into the Result is visible to all workspace members. Embed only what the skill needs, never a field the read-only view hides from members. | `AdminSettingConsumerService.GetExpandedSpecForAgentAsync`, `skills/provision-adminsettingconsumer` |
 | **Provider-scope credentials** | The consumer's ticket runs in its **own** workspace, so its agent gets that workspace's provider scopes (from its `spec.scopeIds`), never the Admin Workspace's. If the consumer needs credentials, attach them to the tenant workspace as for any workspace resource. | none needed |
 | **Admin row goes away** | Decide and implement it. The sample **blocks**: the admin service's `ValidateCanDeprovisionAsync` (also what `GET can-deprovision` reports) and `OnBeforeDeleteAsync` count consumers across **all** workspaces through `IRepository<TConsumer>` and throw while any reference the row. The alternative — deprovisioning consumers first — needs an orchestrator; the SDK's `GuardNoChildrenAsync` is the same count with parent/child wording. The consumer's skill still fails cleanly when the embedded row is `null`. | `AdminSettingService.GuardNotInUseAsync` |
 | **Admin row changes** | An update to the admin row does not re-provision its consumers: each consumer applied what it embedded at its own provisioning time. Re-provision consumers yourself if that matters. | — |
 
 ```csharp
 // The consumer's service: embed the admin row the agent needs (the base serializes this resource only).
+// Members can read every embedded field through the ticket's chat, so the setting's value is left out.
 public override async Task<string> GetExpandedSpecForAgentAsync(AdminSettingConsumer resource, CancellationToken ct)
 {
     var json = JsonNode.Parse(await base.GetExpandedSpecForAgentAsync(resource, ct))!.AsObject();
@@ -264,7 +267,7 @@ public override async Task<string> GetExpandedSpecForAgentAsync(AdminSettingCons
     json["adminSetting"] = setting == null ? null : new JsonObject
     {
         ["id"] = setting.Id, ["name"] = setting.Name, ["status"] = setting.Status.ToString(),
-        ["settingKey"] = setting.Spec?.SettingKey, ["settingValue"] = setting.Spec?.SettingValue,
+        ["settingKey"] = setting.Spec?.SettingKey,
     };
     return json.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
 }

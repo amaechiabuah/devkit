@@ -84,9 +84,9 @@ if [ -d "$DIR/skills" ]; then
         | grep -vE 'environment/(extensions/|extension-studio)' | grep -vE 'environment/\{' || true)
   [ -n "$bad" ] && { echo "  ! skill callback URL(s) not under 'environment/extensions/' — confirm they target this extension's restSegment:" >&2; printf '%s\n' "$bad" | sed 's/^/      /' >&2; }
 fi
-# Admin extension scope (reference/21-admin-resources.md). An AdminResourcesController serves an admin-only route with no
-# {workspaceId} and owns its rows in the system Admin Workspace; a workspace controller must never sit under the
-# admin prefix. The manifest marks admin surfaces with "scope": "admin" on the top-level menu node + its routes.
+# Admin extension scope (reference/21-admin-resources.md). An AdminResourcesController serves a route with no
+# {workspaceId}, gated by the Admin Workspace's grants, and owns its rows in the system Admin Workspace; a workspace
+# controller must never sit under the admin prefix. The manifest marks admin surfaces with "scope": "admin" on the top-level menu node + its routes.
 has_admin=0; has_ws=0
 while IFS= read -r f; do
   [ -n "$f" ] || continue
@@ -136,7 +136,7 @@ done < <(jq -r '(.frontend.routes // []) as $r | .frontend.menus // [] | .[] | (
   | select(([$r[] | select(.path == $u) | (.scope // "workspace")] | index($s)) == null) | "\($u)\t\($s)"' "$MANIFEST")
 # A plain controller (ControllerBase/Controller, e.g. a read-only workspace view of an admin resource) gets no
 # authorization unless it says so: the host has no fallback policy, and only [Authorize] runs the tenant policy
-# (workspace membership, admin-only /aiservicedesk/admin). Resource controllers inherit it from their base.
+# (workspace membership; Admin Workspace grants on /aiservicedesk/admin). Resource controllers inherit it from their base.
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   # Attribute lines only (also `[ApiController, Authorize]`) — a doc comment mentioning [Authorize] must not count.
