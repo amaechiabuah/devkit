@@ -52,7 +52,7 @@ while IFS= read -r pkg; do
   perl -pi -e 's{"\@duplocloud-internal/ng-common-lib":\s*"([^"]*?(?:packages|vendor)/)duplocloud-internal-ng-common-lib-[^"]+"}{"\@duplocloud-internal/ng-common-lib": "${1}'"$NAME"'"}g' "$pkg"
   if [ "$before" != "$(cat "$pkg")" ]; then
     # Frontends copied out of the template keep their own vendor/; put the tarball where the dependency points.
-    rel="$(jq -r '.dependencies["@duplocloud-internal/ng-common-lib"]' "$pkg")"
+    rel="$(jq -r '(.devDependencies + .dependencies)["@duplocloud-internal/ng-common-lib"]' "$pkg")"
     lib_dir="$(dirname "$pkg")/$(dirname "${rel#file:}")"
     if [ -d "$lib_dir" ]; then
       find "$lib_dir" -maxdepth 1 -name 'duplocloud-internal-ng-common-lib-*.tgz' ! -name "$NAME" -delete

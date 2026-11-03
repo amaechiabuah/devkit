@@ -142,7 +142,7 @@ if [ "$RC" = 0 ] && grep -q "::warning.*0.5.0.*defaults" <<<"$OUT" && ! grep -q 
 t "is quiet about ng-common-lib 0.5.1 and later"
 new_repo; set_manifest 0.1.1 '["duplo.demo/0.1.1/skills/provision-demo"]'
 frontend_lib 'file:vendor/duplocloud-internal-ng-common-lib-0.5.1.tgz'
-OUT1="$(run)"; frontend_lib '^0.10.0'; OUT2="$(run)"; RC=$?
+OUT1="$(run)"; RC1=$?; frontend_lib '^0.10.0'; OUT2="$(run)"; RC=$((RC1 | $?))
 if [ "$RC" = 0 ] && ! grep -q "::warning" <<<"$OUT1$OUT2"; then ok; else bad "rc=$RC out=$OUT1$OUT2"; fi
 
 echo

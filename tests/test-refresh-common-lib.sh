@@ -32,6 +32,13 @@ V="$REPO/extensions/foo/frontend/vendor"
 if [ "$RC" = 0 ] && [ -f "$V/$NEW" ] && [ ! -f "$V/$OLD" ] && grep -q "vendor/$NEW" "$REPO/extensions/foo/frontend/package.json" \
   && [ -f "$REPO/packages/$NEW" ] && [ ! -f "$REPO/packages/$OLD" ]; then ok; else bad "rc=$RC out=$OUT vendor=$(ls "$V")"; fi
 
+t "follows a library listed under devDependencies"
+new_repo; V="$REPO/extensions/foo/frontend/vendor"
+printf '{"devDependencies":{"@duplocloud-internal/ng-common-lib":"file:vendor/%s"}}\n' "$OLD" > "$REPO/extensions/foo/frontend/package.json"
+OUT="$("$REPO/scripts/refresh-common-lib.sh" "$TMP/$NEW" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && [ -f "$V/$NEW" ] && [ ! -f "$V/$OLD" ] && [ ! -f "$REPO/extensions/foo/frontend/$NEW" ]; then ok
+else bad "rc=$RC out=$OUT vendor=$(ls "$V") frontend=$(ls "$REPO/extensions/foo/frontend")"; fi
+
 echo
 echo "passed $PASS, failed $FAIL"
 [ "$FAIL" -eq 0 ]
