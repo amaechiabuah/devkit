@@ -67,6 +67,32 @@ jobs:
           if [ ${#dirs[@]} -gt 0 ]; then echo "build=true" >> "$GITHUB_OUTPUT"
           else echo "build=false" >> "$GITHUB_OUTPUT"; echo "::notice::No extensions/*/manifest.json — nothing to release."; fi
 
+      # Every secret and variable the run needs, checked by name before anything runs. Without this a missing
+      # DUPLO_HOST surfaces as a build against devkit's local target, which does not exist on a runner, and a missing
+      # role variable surfaces inside the credentials step. The values are only tested for emptiness.
+      - name: Check the secrets and variables the release needs
+        if: steps.guard.outputs.build == 'true'
+        env:
+          CONSOLE_API_KEY: ${{ secrets.CONSOLE_API_KEY }}
+          CONSOLE_SIGNING_KEY: ${{ secrets.CONSOLE_SIGNING_KEY }}
+          CONSOLE_SIGNING_CERT: ${{ vars.CONSOLE_SIGNING_CERT }}
+          ARMDOT_LICENSE_KEY: ${{ secrets.ARMDOT_LICENSE_KEY }}
+          EXTENSION_PUBLISHER_ROLE_ARN: ${{ vars.EXTENSION_PUBLISHER_ROLE_ARN }}
+        run: |
+          missing=()
+          for v in DUPLO_HOST DUPLO_TOKEN CONSOLE_API_KEY; do [ -n "${!v:-}" ] || missing+=("$v"); done
+          case "$GITHUB_REPOSITORY_OWNER" in
+            duplocloud|duplocloud-internal)
+              for v in CONSOLE_SIGNING_KEY CONSOLE_SIGNING_CERT ARMDOT_LICENSE_KEY EXTENSION_PUBLISHER_ROLE_ARN; do
+                [ -n "${!v:-}" ] || missing+=("$v")
+              done ;;
+          esac
+          [ ${#missing[@]} -eq 0 ] && exit 0
+          echo "::error::This release needs ${missing[*]} set as repository or organization secrets and variables. The" \
+            "DUPLO_* secrets name the host the build takes its SDK from, CONSOLE_API_KEY registers the version, and in" \
+            "DuploCloud's organizations the signing, license and role values are required. See docs/releasing-extensions.md."
+          exit 1
+
       # Only Duplo's organizations hold the role, and only the repositories its trust list names can assume it, so a
       # repository outside that list fails here, before anything is built, rather than at the upload.
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
