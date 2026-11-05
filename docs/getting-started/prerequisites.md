@@ -1,7 +1,7 @@
 # 0. Prerequisites
 
 **What you'll do:** Confirm you have what this kit needs — a container runtime with Compose v2, Python 3,
-LLM access, a verified email address, and five free ports.
+LLM access, a verified email address, and four free ports.
 
 **What you need first:** Nothing. This is the first page.
 
