@@ -38,8 +38,8 @@ from a built-in resource (Network, Namespace, …).
 > [18-access-control](reference/18-access-control.md) — the `[AccessControl]` declaration and named actions ·
 > [19-detail-page](reference/19-detail-page.md) — the detail-page shell, the lifecycle rail, per-resource phases per mode ·
 > [20-ui-library](reference/20-ui-library.md) — every `ng-common-lib` export, a "need X → use Y" picker, verified recipes, and what works in a remote ·
-> [21-admin-resources](reference/21-admin-resources.md) — **admin-scoped** resources: `AdminResourcesController`, the admin
->   route, the Admin Workspace, AI Admin menus/routes, and the skill write-back URL.
+> [21-theming](reference/21-theming.md) — Light/Dark and brand themes: the `$g-*` colour names, rules, editors and charts.
+> [22-admin-resources](reference/21-admin-resources.md) — **admin-scoped** resources: `AdminResourcesController`, the admin route, the Admin Workspace, AI Admin menus/routes, and the skill write-back URL.
 
 > **Every dev-kit extension is TYPED — there is no archetype choice.** A typed extension ships a compiled
 > .NET DLL (`manifest.archetype = "typed"`) with the resource's own controller/route/collection, an Angular
