@@ -120,6 +120,13 @@ rebuild DUPLO_SDK_VERSIONS=1.0.6
 [ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.6/extension.zip" ] && [ ! -f "$EXT/dist/extension.zip" ] \
   && ok || bad "rc=$RC stale=$(ls "$EXT/dist/extension.zip" 2>/dev/null) $(tail -5 "$TMP/build.log")"
 
+t "feed mode with a shorter list: a bundle for a version no longer listed is removed"
+rebuild DUPLO_SDK_VERSIONS=1.0.6,1.0.7
+[ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.6/extension.zip" ] && [ -f "$EXT/dist/sdk-1.0.7/extension.zip" ] || bad "setup rc=$RC"
+rebuild DUPLO_SDK_VERSIONS=1.0.7
+[ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.7/extension.zip" ] && [ ! -d "$EXT/dist/sdk-1.0.6" ] \
+  && ok || bad "rc=$RC stale=$(ls -d "$EXT/dist/sdk-1.0.6" 2>/dev/null) $(tail -5 "$TMP/build.log")"
+
 echo ""
 echo "passed $PASS, failed $FAIL"
 [ "$FAIL" -eq 0 ]
