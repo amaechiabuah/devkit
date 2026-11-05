@@ -57,14 +57,19 @@ chmod +x "$TMP/bin/curl" "$TMP/bin/dotnet" "$TMP/bin/npm"
 export PATH="$TMP/bin:$PATH"
 
 EXT="samples/.test-build-sdk-versions"
-# run_build [env...]: copies the sample into the checkout and builds it natively with the given environment.
-run_build() {
-  rm -rf "$EXT"; : > "$TMP/calls/dotnet"; : > "$TMP/calls/npm"; : > "$TMP/calls/curl"
-  cp -R samples/helloworld "$EXT"
-  rm -rf "$EXT/dist" "$EXT/backend/obj" "$EXT/backend/bin" "$EXT/frontend/node_modules" "$EXT/frontend/dist"
+# rebuild [env...]: builds the copy natively with the given environment, over whatever the last build left in dist/.
+rebuild() {
+  : > "$TMP/calls/dotnet"; : > "$TMP/calls/npm"; : > "$TMP/calls/curl"
   env -u ARMDOT_LICENSE_FILE_PATH DUPLO_TARGET=remote DUPLO_HOST=http://stub.invalid DUPLO_TOKEN=t "$@" \
     "$ROOT/scripts/build-extension.sh" --native "$EXT" > "$TMP/build.log" 2>&1
   RC=$?
+}
+# run_build [env...]: copies the sample into the checkout fresh, then builds it.
+run_build() {
+  rm -rf "$EXT"
+  cp -R samples/helloworld "$EXT"
+  rm -rf "$EXT/dist" "$EXT/backend/obj" "$EXT/backend/bin" "$EXT/frontend/node_modules" "$EXT/frontend/dist"
+  rebuild "$@"
 }
 sdkver() { jq -r '.sdkVersion' "$EXT/dist/$1/pkg/manifest.json" 2>/dev/null; }
 
@@ -109,6 +114,11 @@ run_build
 
 t "host mode: calls the host sdk-version endpoint"
 grep -q 'sdk-version' "$TMP/calls/curl" && ok || bad "no sdk-version call: $(cat "$TMP/calls/curl")"
+
+t "feed mode over a host build: the host bundle is removed, so only the per-version bundles are left"
+rebuild DUPLO_SDK_VERSIONS=1.0.6
+[ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.6/extension.zip" ] && [ ! -f "$EXT/dist/extension.zip" ] \
+  && ok || bad "rc=$RC stale=$(ls "$EXT/dist/extension.zip" 2>/dev/null) $(tail -5 "$TMP/build.log")"
 
 echo ""
 echo "passed $PASS, failed $FAIL"

@@ -399,6 +399,7 @@ else
   # Feed mode: one bundle per listed SDK version, restored from nuget.org (nuget.config), no host needed. The
   # admin-scope probe above is host-mode only, since here the owner names the SDK versions to compile against.
   echo "==> Building ${#SDK_VERSIONS[@]} bundle(s) from the SDK feed: ${SDK_VERSIONS[*]}"
+  rm -f "$DIR/dist/extension.zip"
   for v in "${SDK_VERSIONS[@]}"; do
     build_one "$v" "" "$DIR/dist/sdk-$v"
   done

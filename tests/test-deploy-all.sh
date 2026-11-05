@@ -3,7 +3,7 @@
 # per-SDK-version build the dist/sdk-<v>/extension.zip whose sdkVersion equals the host's.
 #
 # Runs from a temp copy of the kit with a stub deploy-extension.sh that records its argument and a stub curl that
-# answers the sdk-version endpoint, so it never reaches a studio. Usage: ./tests/test-deploy-all.sh
+# answers the sdk-version endpoint, or fails under HOST_DOWN=1, so it never reaches a studio. Usage: ./tests/test-deploy-all.sh
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 PASS=0; FAIL=0
@@ -24,6 +24,7 @@ echo "$1" >> "$DEPLOY_LOG"
 SH
 cat > "$TMP/bin/curl" <<'SH'
 #!/usr/bin/env bash
+[ "${HOST_DOWN:-}" = 1 ] && exit 7
 case "$*" in *sdk-version*) printf '{"version":"%s"}' "${HOST_SDK:-1.0.6}" ;; esac
 SH
 chmod +x "$KIT/scripts/deploy-extension.sh" "$TMP/bin/curl"
@@ -61,6 +62,13 @@ t "per-version build: fails naming the host SDK when no bundle matches it"
 reset; bundle extensions/demo 1.0.6 sdk-1.0.6
 OUT="$(HOST_SDK=1.0.8 run)"; RC=$?
 if [ "$RC" != 0 ] && grep -q "no bundle for the host's SDK 1.0.8" <<<"$OUT" && [ ! -f "$DEPLOY_LOG" ]; then ok
+else bad "rc=$RC out=$OUT"; fi
+
+t "per-version build: an unreadable host SDK version fails with that error alone"
+reset; bundle extensions/demo 1.0.6 sdk-1.0.6
+OUT="$(HOST_DOWN=1 run)"; RC=$?
+if [ "$RC" != 0 ] && grep -q "could not read the host SDK version" <<<"$OUT" && ! grep -q "no bundle for the host's SDK" <<<"$OUT" \
+  && [ ! -f "$DEPLOY_LOG" ]; then ok
 else bad "rc=$RC out=$OUT"; fi
 
 t "fails when nothing is built"

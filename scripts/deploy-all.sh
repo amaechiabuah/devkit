@@ -4,7 +4,7 @@
 #
 # A build leaves either dist/extension.zip, built from the host's own SDK, or one dist/sdk-<v>/extension.zip per
 # version in DUPLO_SDK_VERSIONS. The host loads only a bundle whose sdkVersion equals its own, so for the per-version
-# layout this reads the host's SDK version once and loads the bundle stamped with it. An extension with no matching
+# layout this reads the host's SDK version and loads the bundle stamped with it. An extension with no matching
 # bundle fails the run, since the host would refuse every other one.
 #
 # Usage: ./scripts/deploy-all.sh
@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 shopt -s nullglob
 
 host_sdk=""
-# host_sdk_version: the host's SDK version, read once on first use through the same endpoint build-extension.sh uses.
+# host_sdk_version: the host's SDK version, read through the same endpoint build-extension.sh uses.
 host_sdk_version() {
   [ -n "$host_sdk" ] && { printf '%s\n' "$host_sdk"; return; }
   # shellcheck source=scripts/_target.sh
@@ -33,7 +33,7 @@ bundle_for() {
   [ -f "$dir/dist/extension.zip" ] && { printf '%s\n' "$dir/dist/extension.zip"; return; }
   local versioned=("$dir"/dist/sdk-*/extension.zip)
   [ "${#versioned[@]}" -gt 0 ] || return 0
-  sdk="$(host_sdk_version)"
+  sdk="$(host_sdk_version)" || return 1
   for z in "${versioned[@]}"; do
     [ "$(unzip -p "$z" manifest.json | jq -r '.sdkVersion // empty')" = "$sdk" ] && { printf '%s\n' "$z"; return; }
   done
