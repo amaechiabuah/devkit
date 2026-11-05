@@ -111,12 +111,12 @@ names can assume it, so a repository outside that list fails at the credentials 
 A platform owner sets up each of these once in the console. Each one then serves every release.
 
 1. **The API key behind `CONSOLE_API_KEY`.** In the platform-owner team, create a custom role holding
-   **View extension versions**, **Manage extension versions** and `view_agents`, create a service account
+   **View agent versions**, **Manage agent versions** and `view_agents`, create a service account
    with that role, and store its API key as the organization secret. The action looks the extension up by
    manifest id on the console's staff routes, which is what `view_agents` covers, then reads and creates
-   versions and artifacts, and publishes a version when the run asks for it. Manage extension versions covers
+   versions and artifacts, and publishes a version when the run asks for it. Manage agent versions covers
    publishing. The console's own guide covers the service-account workflow in
-   `docs/platform_owner/extension-versions.md`.
+   `docs/platform_owner/agent-versions.md`.
 2. **The signing key behind `CONSOLE_SIGNING_KEY` and `CONSOLE_SIGNING_CERT`.** The publishing team needs a
    namespace covering its manifest ids, and a signing key created under that team. The console returns the
    key's private PEM once, at creation, and that goes into the secret. The key's certificate goes into the
@@ -136,9 +136,11 @@ GitHub OIDC subject prefix, to `extension_publisher_repositories` in `terraform/
 ai-release maintainer applies it. Until then its release fails at the credentials step.
 
 Changes to `release.yml`, the signer and its `extension-sign.requirements.txt` are meant to take two
-approvals from the `devkit-maintainers` team, through a path-scoped rule in devkit's ruleset. Together those
-files decide what gets signed, and the requirements file pins the libraries the signer loads the key into.
-The release action itself lives in `duplocloud/actions`, under that repository's review.
+approvals from the `devkit-maintainers` team, through a path-scoped rule in devkit's ruleset. `release.yml`
+pins the release action to a commit, so a move to a newer action is an edit that rule covers. The signer and
+its requirements file here serve the composite `extension-sign` action only. A release signs with the
+action's own copy of `extension-sign.py` and its own pinned requirements, which live in `duplocloud/actions`,
+under that repository's review.
 
 ## The channels bucket and the license server
 
@@ -182,8 +184,11 @@ A tag that already has a release is never rebuilt, re-signed, or recreated. The 
 assets and resumes from there, so a run that failed partway, during the upload or the registration, can simply
 be re-run. Everything it already finished is a create-only no-op, and it picks up where it stopped.
 
-A release that was cut before its repository started signing, or outside DuploCloud's organizations, has no
-`.sig` asset to resume from. It cannot gain one afterward. Once immutable releases are turned on for a
-repository, which this workflow recommends, nothing can be added to a release after it is cut. That release
-stays flagged with a warning and is skipped rather than retried. The only way forward is a new
-`manifest.version`, which cuts a new tag and a new release that does get signed.
+A release that was cut before its repository started signing has no `.sig` asset, and it cannot gain one
+afterward. Once immutable releases are turned on for a repository, which this workflow recommends, nothing
+can be added to a release after it is cut. The action does not skip that release. It reads back the
+`extension.zip` alone and registers the build with an empty signature, as it does for any unsigned build.
+Outside DuploCloud's organizations it then uploads through the console-issued URL and the run ends clean. In
+DuploCloud's organizations the upload writes two objects through the publisher role, so the run fails at the
+`.sig` upload, after the unsigned build is registered. The way to a signed build is a new `manifest.version`,
+which cuts a new tag and a new release that does get signed.

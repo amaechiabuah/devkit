@@ -16,7 +16,8 @@
 # certificate and the ArmDot license, mapped below from the org secrets CONSOLE_SIGNING_KEY and ARMDOT_LICENSE_KEY and
 # the org variable CONSOLE_SIGNING_CERT, and refuses a build that is unsigned or not obfuscated. There the upload goes
 # through the AWS role assumed below, whose trust list in ai-release names the repositories that may publish. Outside
-# those organizations nothing is signed or obfuscated and the upload goes through a URL the console issues.
+# those organizations nothing is obfuscated, nothing is signed unless the repository sets its own key and certificate,
+# and the upload goes through a URL the console issues.
 #
 # The hot-load/deploy step is intentionally absent. We publish releases but do not auto-install onto the portal, so the
 # install-from-registry flow stays testable end to end. Add a step running ./scripts/deploy-all.sh after the action to
@@ -104,7 +105,7 @@ jobs:
           role-to-assume: ${{ vars.EXTENSION_PUBLISHER_ROLE_ARN }}
           aws-region: us-west-2
 
-      - uses: duplocloud/actions/release-extension@v1
+      - uses: duplocloud/actions/release-extension@bc17a896897aa32a0d9c9997c1f5e56d76812cf1 # v1
         if: steps.guard.outputs.build == 'true'
         with:
           console-api-key: ${{ secrets.CONSOLE_API_KEY }}
