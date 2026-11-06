@@ -35,9 +35,14 @@ EOF
 
 # dotnet: records each call, and on a publish writes the output the script reads next. The baseline leaves one
 # host-provided DLL and the extension publish leaves that plus its own, so the bundle ships exactly the extension's.
+# An extension publish fails as the real compiler does (CS0579, duplicate AssemblyInfo) when a baseline project is
+# still under backend/, which a per-version build leaves behind unless it removes it before the next version.
 cat > "$TMP/bin/dotnet" <<EOF
 #!/usr/bin/env bash
 echo "dotnet \$*" >> "$TMP/calls/dotnet"
+case "\$*" in publish\ Duplo.Extension.HelloWorld.csproj*)
+  [ ! -d _sdkbaseline ] || { echo "error CS0579: Duplicate 'AssemblyVersion' attribute" >&2; exit 1; } ;;
+esac
 out=""; prev=""
 for a in "\$@"; do [ "\$prev" = -o ] && out=\$a; prev=\$a; done
 [ -n "\$out" ] || exit 0

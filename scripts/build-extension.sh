@@ -231,10 +231,10 @@ echo "==> Building frontend"
 
 # --- Obfuscation setup: once, SDK-independent (it depends only on ARMDOT_LICENSE_FILE_PATH). -----------------
 # The baseline (built per version inside build_one) lives under backend/, inside the compile root. A copy left by
-# a prior interrupted run would dupe AssemblyInfo and fail the publish with CS0579, so purge it up-front and
-# guarantee removal on exit via the trap. ArmDot obfuscation of the extension's own assembly is on only when
-# ARMDOT_LICENSE_FILE_PATH names a license. The import rides in through a Directory.Build.targets dropped beside
-# the csproj for this build, so the extension's own project file never changes.
+# a prior interrupted run, or by the previous version of a feed build, would dupe AssemblyInfo and fail the publish
+# with CS0579, so purge it up-front, after each version's use, and on exit via the trap. ArmDot obfuscation of the
+# extension's own assembly is on only when ARMDOT_LICENSE_FILE_PATH names a license. The import rides in through a
+# Directory.Build.targets dropped beside the csproj for this build, so the extension's own project file never changes.
 BASELINE="$DIR/backend/_sdkbaseline"
 rm -rf "$BASELINE"
 OBFUSCATE=0
@@ -335,7 +335,7 @@ CSPROJ_EOF
     done
   done
   shopt -u nullglob
-  rm -f "$provided"
+  rm -f "$provided"; rm -rf "$BASELINE"
   [ "$kept" -gt 0 ] || { echo "ERROR: [$sdk_ver] nothing left to ship after excluding host-provided assemblies (the extension's own DLL was treated as host-provided)." >&2; return 1; }
   echo "    backend: shipped $kept assembly file(s), dropped $dropped host-provided"
   if [ -d "$pkg/backend/runtimes" ]; then
