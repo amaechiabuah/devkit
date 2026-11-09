@@ -204,13 +204,12 @@ echo "    naming OK"
 
 # --- Which SDKs to build against. ----------------------------------------------------------------------------
 # Empty (the default) keeps today's single build from the running host's SDK, stamped with its digest, at
-# dist/extension.zip. A non-empty DUPLO_SDK_VERSIONS (comma-separated) builds one bundle per version, each
-# restored from the package feed (nuget.config's nuget.org source) rather than a host, so no DUPLO_HOST is
-# needed to build. Each goes to dist/sdk-<version>/extension.zip, which is what release-extensions.sh walks.
-IFS=',' read -r -a _raw_versions <<<"${DUPLO_SDK_VERSIONS:-}"
+# dist/extension.zip. A non-empty DUPLO_SDK_VERSIONS (one per line, or comma-separated) builds one bundle per
+# version, each restored from the package feed (nuget.config's nuget.org source) rather than a host, so no
+# DUPLO_HOST is needed to build. Each goes to dist/sdk-<version>/extension.zip, which is what the release action
+# walks. The release action hands the list over one per line, and a repository variable holds either form.
 SDK_VERSIONS=()
-for v in "${_raw_versions[@]:-}"; do
-  v="$(printf '%s' "$v" | tr -d '[:space:]')"
+for v in $(printf '%s' "${DUPLO_SDK_VERSIONS:-}" | tr ',' ' '); do
   [ -n "$v" ] && SDK_VERSIONS+=("$v")
 done
 

@@ -105,6 +105,11 @@ t "feed mode: no sdkDigest is stamped (nothing fingerprints a feed build)"
 t "feed mode: no single-bundle dist/extension.zip is produced"
 [ ! -f "$EXT/dist/extension.zip" ] && ok || bad "unexpected dist/extension.zip in feed mode"
 
+t "versions one per line, as the release action passes them, build the same bundles"
+run_build DUPLO_SDK_VERSIONS=$'1.0.6\n1.0.7\n'
+[ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.6/extension.zip" ] && [ -f "$EXT/dist/sdk-1.0.7/extension.zip" ] \
+  && ok || bad "rc=$RC $(ls "$EXT/dist" 2>/dev/null | tr '\n' ' ')"
+
 t "a trailing comma or spaces in the version list are ignored"
 run_build DUPLO_SDK_VERSIONS=" 1.0.6 , "
 [ "$RC" = 0 ] && [ -f "$EXT/dist/sdk-1.0.6/extension.zip" ] && [ ! -d "$EXT/dist/sdk-" ] \
