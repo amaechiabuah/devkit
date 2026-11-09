@@ -63,10 +63,24 @@ ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' build/ArmDo
 # with the given environment, and leaves its exit code in RC and its bundle manifest at $TMP/manifest.json.
 EXT="samples/.test-build-obfuscation"
 # RUN_FROM=<dir> runs the script from that directory instead of the repo root, to test relative license paths.
+# PRESET_REF=<include> adds a ProjectReference with that Include, as a csproj would write it, to the entry project and
+# creates the referenced project; PRESET_REF_SUB=<include> does the same from that project, one level down.
+add_ref() {
+  local from="$1" to
+  to="$(dirname "$from")/$(printf '%s' "$2" | tr '\\' '/')"
+  mkdir -p "$(dirname "$to")" && printf '%s\n' '<Project Sdk="Microsoft.NET.Sdk">' '</Project>' > "$to"
+  INC="$2" awk '/<\/Project>/{print "  <ItemGroup>"; print "    <ProjectReference Include=\"" ENVIRON["INC"] "\" />"; print "  </ItemGroup>"} {print}' \
+    "$from" > "$from.tmp" && mv "$from.tmp" "$from"
+  REF_CREATED="$to"
+}
 run_build() {
   rm -rf "$EXT" "$TMP/manifest.json"; : > "$TMP/calls/dotnet"
   cp -R samples/helloworld "$EXT"
   rm -rf "$EXT/dist" "$EXT/backend/obj" "$EXT/backend/bin" "$EXT/frontend/node_modules" "$EXT/frontend/dist"
+  if [ -n "${PRESET_REF:-}" ]; then
+    add_ref "$EXT/backend/Duplo.Extension.HelloWorld.csproj" "$PRESET_REF"
+    [ -n "${PRESET_REF_SUB:-}" ] && add_ref "$REF_CREATED" "$PRESET_REF_SUB"
+  fi
   [ -n "${PRESET_TARGETS:-}" ] && echo "$PRESET_TARGETS" > "$EXT/backend/Directory.Build.targets"
   [ -n "${PRESET_MANIFEST_KEY:-}" ] && jq '.obfuscation = {tool: "armdot", version: "0.0.0"}' samples/helloworld/manifest.json \
     > "$EXT/manifest.json"
@@ -156,6 +170,28 @@ t "a stale obfuscation key is replaced by a licensed build"
 PRESET_MANIFEST_KEY=1 run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
 got="$(jq -r '.obfuscation.version' "$TMP/manifest.json" 2>/dev/null)"
 [ "$got" = "$ARMDOT_VERSION" ] && ok || bad "$(jq -c .obfuscation "$TMP/manifest.json" 2>&1)"
+
+# Only projects under backend/ import the dropped targets file, so a reference that leads outside it would ship a
+# plain assembly in a bundle stamped obfuscated. The Include paths use backslashes, as a csproj written on Windows does.
+t "licensed build: a reference outside backend/ fails before any dotnet call and names the project"
+PRESET_REF='..\shared\Shared.csproj' run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+[ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'lead outside it' "$TMP/build.log" \
+  && grep -q 'Duplo.Extension.HelloWorld.csproj -> .*/shared/Shared.csproj' "$TMP/build.log" \
+  && [ ! -f "$EXT/backend/Directory.Build.targets" ] && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet") $(tail -4 "$TMP/build.log")"
+
+t "plain build: the same reference outside backend/ builds, with no obfuscation key"
+PRESET_REF='..\shared\Shared.csproj' run_build
+[ "$RC" = 0 ] && [ "$(jq -r '.obfuscation // "absent"' "$TMP/manifest.json" 2>/dev/null)" = absent ] && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
+
+t "licensed build: a reference inside backend/ builds and carries the stamp"
+PRESET_REF='Shared\Shared.csproj' run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+[ "$RC" = 0 ] && [ "$(jq -r '.obfuscation.version' "$TMP/manifest.json" 2>/dev/null)" = "$ARMDOT_VERSION" ] \
+  && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
+
+t "licensed build: a reference that leaves backend/ from a referenced project is caught too"
+PRESET_REF='Shared\Shared.csproj' PRESET_REF_SUB='..\..\common\Common.csproj' run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+[ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'Shared.csproj -> .*/common/Common.csproj' "$TMP/build.log" \
+  && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
 
 echo "passed $PASS, failed $FAIL"
 [ "$FAIL" -eq 0 ]

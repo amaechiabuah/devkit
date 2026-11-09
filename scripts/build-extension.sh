@@ -263,10 +263,47 @@ trap 'rm -rf "$BASELINE" 2>/dev/null || true' EXIT
 OBFUSCATE=0
 OBFUSCATE_PROPS=(-p:DuploObfuscate=false)
 OBF_TARGETS="$DIR/backend/Directory.Build.targets"
+# project_refs <csproj>: the projects it references, one absolute path per line. An Include is written with either
+# separator and, when relative, is relative to the csproj's directory. The directory part is resolved on disk so a
+# ../ segment compares against backend/ by location; one that does not exist is left as written for dotnet to report.
+project_refs() {
+  local csproj="$1" dir ref
+  dir="$(cd "$(dirname "$csproj")" && pwd -P)"
+  { grep -oE '<ProjectReference[^>]*Include="[^"]+"' "$csproj" 2>/dev/null || true; } \
+    | sed -E 's/.*Include="([^"]+)".*/\1/' | tr '\\' '/' \
+    | while IFS= read -r ref; do
+        case "$ref" in /*) ;; *) ref="$dir/$ref" ;; esac
+        [ -d "$(dirname "$ref")" ] && ref="$(cd "$(dirname "$ref")" && pwd -P)/$(basename "$ref")"
+        printf '%s\n' "$ref"
+      done
+}
 if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
   # Already absolute and checked by builder_resolve_license at the top, before the cd.
   ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' build/ArmDot.Obfuscation.props)"
   [ -n "$ARMDOT_VERSION" ] || { echo "ERROR: no ArmDotEngineVersion in build/ArmDot.Obfuscation.props" >&2; exit 1; }
+  # Only projects under backend/ import the targets file dropped below, so a referenced project outside it publishes
+  # plain into a bundle whose manifest says obfuscated. Refuse that rather than overclaim. The entry project's
+  # references and their own references are checked, which covers how an extension splits its backend.
+  BACKEND_ROOT="$(cd "$DIR/backend" && pwd -P)"
+  outside=""
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+    case "$ref" in
+      "$BACKEND_ROOT"/*)
+        while IFS= read -r sub; do
+          [ -n "$sub" ] || continue
+          case "$sub" in "$BACKEND_ROOT"/*) ;; *) outside="$outside  $(basename "$ref") -> $sub"$'\n' ;; esac
+        done < <(project_refs "$ref") ;;
+      *) outside="$outside  $(basename "$CSPROJ") -> $ref"$'\n' ;;
+    esac
+  done < <(project_refs "$CSPROJ")
+  if [ -n "$outside" ]; then
+    echo "ERROR: a licensed build obfuscates only the projects under $DIR/backend/, and these references lead outside it:" >&2
+    printf '%s' "$outside" >&2
+    echo "  Their assemblies would ship plain in a bundle stamped as obfuscated. Move each project under backend/," >&2
+    echo "  or unset ARMDOT_LICENSE_FILE_PATH to build without obfuscation." >&2
+    exit 1
+  fi
   # A file identical to the template is this script's own leftover from a killed build, so it is replaced. Anything
   # else is the extension's own and is never overwritten.
   if [ -e "$OBF_TARGETS" ] && ! cmp -s build/Directory.Build.targets.template "$OBF_TARGETS"; then
