@@ -140,14 +140,17 @@ services:
       init-perms:
         condition: service_completed_successfully
 
-  # No published port. The agent API has no authentication and its exec endpoint runs scripts inside
-  # this container, which holds the LLM and cloud credentials and reaches the privileged dind daemon.
-  # The studio reaches it in-network at http://claude-code-agent:8000, which is all anything needs.
+  # No published port. The exec endpoint runs scripts inside this container, which holds the LLM and cloud
+  # credentials and reaches the privileged dind daemon. The studio reaches it in-network at
+  # http://claude-code-agent:8000, which is all anything needs.
   claude-code-agent:
     image: quay.io/duplocloud/duplo-agent:${AGENT_TAG}
     restart: unless-stopped
     environment:
       - PERSISTENT_VOLUME_STORAGE=/data
+      # Every route but health requires this bearer once it is set. The studio reads the same value from .env
+      # through its env_file and sends it on each agent call. Empty, the agent accepts any caller.
+      - CCA_API_AUTH_TOKEN=${Agent__ApiAuthToken:-}
       - AGENT_CALLBACK_BASE_URL=http://duplo-ai-studio:60021
       - DCAF_TOOL_CALL_LIMIT=15
       - DCAF_DEFAULT_TOOLKIT=true

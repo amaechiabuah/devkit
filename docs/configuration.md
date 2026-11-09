@@ -135,7 +135,8 @@ Offset from the platform's standard ports (60021 / 4200 / 27017 / 6060) so this 
 | `XTERM_PORT` | `6061` | In-browser terminal |
 
 `claude-code-agent` has no host port. The studio reaches it on the compose network at
-`http://claude-code-agent:8000`, and its API has no authentication, so it is never published on the host.
+`http://claude-code-agent:8000` and authenticates with `Agent__ApiAuthToken` (below), so it is never published
+on the host.
 
 Change any of these if they still collide with something on your machine, then re-run `./run.sh`.
 
@@ -202,6 +203,7 @@ Managed by `./run.sh` — leave them blank in a fresh `.env` and let it prompt.
 | `Authentication__FrontendBaseUrl` | Defaults to `http://localhost:$UI_PORT`. |
 | `Authentication__JwtSharedSecret` | Generated once (`openssl rand -hex 32`). Regenerated only on `--reset`. |
 | `Encryption__MasterKey` | Generated once (`openssl rand -base64 96`). Regenerated only on `--reset`. |
+| `Agent__ApiAuthToken` | Generated once (`openssl rand -hex 32`). Regenerated only on `--reset`. The studio sends it as a bearer on every call to `claude-code-agent`, which receives it as `CCA_API_AUTH_TOKEN` and returns 401 to any call without it. |
 | `AIStudio__IsMasterDisabled` | `true`. Required for standalone operation with no DuploCloud master. |
 | `AIStudio__DevKitMode` | `true`. Dev-kit only: exposes the per-extension **Clean Database** admin action, which drops one extension's data collections. |
 

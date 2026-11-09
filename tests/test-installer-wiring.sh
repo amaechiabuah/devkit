@@ -97,6 +97,20 @@ if in_readme "docker compose stop duplo-ai-studio" \
     && in_readme 'The rebuild has to differ in content'
 then ok; else bad "README lacks the stop, disable-the-row, restart or fixed-rebuild steps"; fi
 
+# The agent API checks a bearer token when CCA_API_AUTH_TOKEN is set and accepts every caller when it is not, so the
+# devkit has to mint one. The studio reads the same value as Agent__ApiAuthToken through its env_file.
+t "run.sh mints Agent__ApiAuthToken once and --reset blanks it"
+if grep -qF '[ -n "$(getenv Agent__ApiAuthToken)" ] || setenv Agent__ApiAuthToken "$(openssl rand -hex 32)"' run.sh \
+    && awk '/^if \[ "\$RESET" = 1 \]; then$/{f=1} f&&/^  done$/{exit} f' run.sh | grep -qw Agent__ApiAuthToken; then ok
+else bad "run.sh does not mint Agent__ApiAuthToken, or --reset keeps it"; fi
+
+t ".env.example lists Agent__ApiAuthToken for run.sh to fill"
+if grep -qx 'Agent__ApiAuthToken=' .env.example; then ok; else bad "no Agent__ApiAuthToken= line"; fi
+
+t "nothing still says the agent API has no authentication"
+STALE="$(grep -lE 'API has no authentication|has no authentication and its exec' docker-compose.yml docs/*.md README.md 2>/dev/null | tr '\n' ' ')"
+if [ -z "$STALE" ]; then ok; else bad "stale in: $STALE"; fi
+
 echo
 echo "installer wiring, rendered:"
 
@@ -170,6 +184,12 @@ if mode == "set":
     senv = studio.get("environment") or {}
     out("studio calls the installer on the compose network", senv.get("Extensions__InstallerUrl") == "http://installer:8080",
         senv.get("Extensions__InstallerUrl"))
+    aenv = agent.get("environment") or {}
+    out("agent enforces the API token from .env", aenv.get("CCA_API_AUTH_TOKEN") == "fixture-agent-token",
+        aenv.get("CCA_API_AUTH_TOKEN"))
+    out("studio sends the same API token", senv.get("Agent__ApiAuthToken") == "fixture-agent-token",
+        senv.get("Agent__ApiAuthToken"))
+    out("installer receives no agent API token", "Agent__ApiAuthToken" not in env and "CCA_API_AUTH_TOKEN" not in env, env.keys())
 else:
     out("EXTENSIONS_ENABLED defaults to true", env.get("EXTENSIONS_ENABLED") == "true", env.get("EXTENSIONS_ENABLED"))
     out("EXTENSIONS_SOURCE defaults to customer", env.get("EXTENSIONS_SOURCE") == "customer", env.get("EXTENSIONS_SOURCE"))
@@ -192,7 +212,7 @@ else:
   }
 
   if J="$(render INSTALLER_TAG=fixture-tag STUDIO_TAG=studio-fixture Authentication__JwtSharedSecret=fixture-secret \
-        Licensing__Token=fixture-license 'EXTENSIONS_EXCLUDE=["a.b"]' LICENSE_SERVER_URL=https://license.example \
+        Agent__ApiAuthToken=fixture-agent-token Licensing__Token=fixture-license 'EXTENSIONS_EXCLUDE=["a.b"]' LICENSE_SERVER_URL=https://license.example \
         ANTHROPIC_API_KEY=sk-fixture AWS_SECRET_ACCESS_KEY=aws-fixture Authentication__LocalAdminPassword=pw \
         Encryption__MasterKey=mk)"; then
     tally < <(printf '%s' "$J" | check set)
