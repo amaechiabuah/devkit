@@ -167,6 +167,12 @@ if mode == "set":
     out("agent publishes no host port", not agent.get("ports"), agent.get("ports"))
     mports = svc.get("mongo", {}).get("ports") or []
     out("mongo publishes on loopback only", bool(mports) and all(p.get("host_ip") == "127.0.0.1" for p in mports), mports)
+    xterm = svc.get("xterm", {})
+    xports = xterm.get("ports") or []
+    out("xterm publishes on loopback only", bool(xports) and all(p.get("host_ip") == "127.0.0.1" for p in xports), xports)
+    xenv = xterm.get("environment") or {}
+    out("xterm allows only the portal origins on UI_PORT and sets no CORS_ORIGIN",
+        xenv.get("ALLOWED_ORIGINS") == "http://localhost:4321,http://127.0.0.1:4321" and "CORS_ORIGIN" not in xenv, xenv)
     senv = studio.get("environment") or {}
     out("studio calls the installer on the compose network", senv.get("Extensions__InstallerUrl") == "http://installer:8080",
         senv.get("Extensions__InstallerUrl"))
@@ -176,6 +182,9 @@ else:
     for k in ("LICENSE_SERVER_URL", "URL_ROUTE_URL", "CHANNELS_BASE_URL", "CHANNELS_BUCKET", "EXTENSIONS_EXCLUDE",
               "EXTENSIONS_ENROLLMENT_ID"):
         out("%s stays unset by default" % k, unset(k), env.get(k))
+    xenv = svc.get("xterm", {}).get("environment") or {}
+    out("xterm origins default to the unoffset portal port", xenv.get("ALLOWED_ORIGINS") == "http://localhost:4200,http://127.0.0.1:4200",
+        xenv.get("ALLOWED_ORIGINS"))
 ' "$1"
   }
 
@@ -191,7 +200,7 @@ else:
     done
   }
 
-  if J="$(render INSTALLER_TAG=fixture-tag STUDIO_TAG=studio-fixture Authentication__JwtSharedSecret=fixture-secret \
+  if J="$(render INSTALLER_TAG=fixture-tag STUDIO_TAG=studio-fixture UI_PORT=4321 Authentication__JwtSharedSecret=fixture-secret \
         Licensing__Token=fixture-license 'EXTENSIONS_EXCLUDE=["a.b"]' LICENSE_SERVER_URL=https://license.example \
         ANTHROPIC_API_KEY=sk-fixture AWS_SECRET_ACCESS_KEY=aws-fixture Authentication__LocalAdminPassword=pw \
         Encryption__MasterKey=mk)"; then

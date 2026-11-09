@@ -279,14 +279,19 @@ services:
       init-nginx-conf:
         condition: service_completed_successfully
 
+  # Published on loopback only: the container runs privileged and the terminal server authenticates nobody, so a
+  # bare "6060:6060" would hand a root shell on this host to anything that can reach it. The browser reaches it at
+  # http://localhost:$XTERM_PORT (AIStudio__XtermHost above), which loopback still serves.
   xterm:
     image: quay.io/duplocloud/duplo-xterm:${XTERM_TAG:-main-d323e0b}
     restart: unless-stopped
     privileged: true
     ports:
-      - "${XTERM_PORT:-6060}:6060"
+      - "127.0.0.1:${XTERM_PORT:-6060}:6060"
     environment:
-      - CORS_ORIGIN=*
+      # The origins the socket.io server accepts, unset meaning every origin. The portal is served from
+      # localhost on UI_PORT, and some people type 127.0.0.1 instead, so both are listed.
+      - ALLOWED_ORIGINS=http://localhost:${UI_PORT:-4200},http://127.0.0.1:${UI_PORT:-4200}
 
   # Build toolchain for extensions (.NET SDK 8 + Node 22). Behind a profile so the `compose pull`
   # and `up` in run.sh skip it entirely — a user who only runs the platform never downloads it. The
