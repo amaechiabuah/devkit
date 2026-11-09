@@ -1,0 +1,4 @@
+<Project>
+  <!-- Test stand-in for the template kept in duplocloud-internal/.github. -->
+  <Import Project="$(DuploDevkitBuildDir)ArmDot.Obfuscation.targets" Condition="'$(DuploObfuscate)' == 'true'" />
+</Project>

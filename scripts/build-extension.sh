@@ -259,25 +259,37 @@ trap 'rm -rf "$BASELINE" 2>/dev/null || true' EXIT
 # ArmDot obfuscation of the extension's own assembly, on only when ARMDOT_LICENSE_FILE_PATH names a license. The
 # builder container receives an empty value when the host set none, so -n is the test, not "is set". The import
 # rides in through a Directory.Build.targets dropped beside the csproj for this one build, so the extension's own
-# project file never changes. build/ArmDot.Obfuscation.props has why only two ArmDot features are on.
+# project file never changes. The ArmDot build files themselves (props, targets, attributes and that template) are
+# not in this repository: they are read from DUPLO_ARMDOT_DIR, which DuploCloud's release action fills from the
+# private shared repository, and which a laptop build points at a checkout of it. The props there say why only two
+# ArmDot features are on.
 OBFUSCATE=0
 OBFUSCATE_PROPS=(-p:DuploObfuscate=false)
 OBF_TARGETS="$DIR/backend/Directory.Build.targets"
 if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
   # Already absolute and checked by builder_resolve_license at the top, before the cd.
-  ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' build/ArmDot.Obfuscation.props)"
-  [ -n "$ARMDOT_VERSION" ] || { echo "ERROR: no ArmDotEngineVersion in build/ArmDot.Obfuscation.props" >&2; exit 1; }
+  ARMDOT_DIR="${DUPLO_ARMDOT_DIR:-}"
+  for f in ArmDot.Obfuscation.props ArmDot.Obfuscation.targets ArmDotObfuscationAssemblyInfo.cs Directory.Build.targets.template; do
+    [ -n "$ARMDOT_DIR" ] && [ -f "$ARMDOT_DIR/$f" ] && continue
+    echo "ERROR: ARMDOT_LICENSE_FILE_PATH is set, but DUPLO_ARMDOT_DIR does not name a directory holding the ArmDot build files" >&2
+    echo "       (DUPLO_ARMDOT_DIR=${ARMDOT_DIR:-unset}, missing $f). They live under armdot/ in duplocloud-internal/.github:" >&2
+    echo "       DuploCloud's release action fetches them, and a laptop build points DUPLO_ARMDOT_DIR at a checkout of them." >&2
+    exit 1
+  done
+  ARMDOT_DIR="$(cd "$ARMDOT_DIR" && pwd -P)"
+  ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' "$ARMDOT_DIR/ArmDot.Obfuscation.props")"
+  [ -n "$ARMDOT_VERSION" ] || { echo "ERROR: no ArmDotEngineVersion in $ARMDOT_DIR/ArmDot.Obfuscation.props" >&2; exit 1; }
   # A file identical to the template is this script's own leftover from a killed build, so it is replaced. Anything
   # else is the extension's own and is never overwritten.
-  if [ -e "$OBF_TARGETS" ] && ! cmp -s build/Directory.Build.targets.template "$OBF_TARGETS"; then
+  if [ -e "$OBF_TARGETS" ] && ! cmp -s "$ARMDOT_DIR/Directory.Build.targets.template" "$OBF_TARGETS"; then
     echo "ERROR: $OBF_TARGETS already exists. The obfuscation import is dropped there for the build," >&2
     echo "       so move the extension's own targets into its csproj first." >&2
     exit 1
   fi
   trap 'rm -rf "$BASELINE" 2>/dev/null || true; rm -f "$OBF_TARGETS"' EXIT
-  cp build/Directory.Build.targets.template "$OBF_TARGETS"
+  cp "$ARMDOT_DIR/Directory.Build.targets.template" "$OBF_TARGETS"
   OBFUSCATE=1
-  OBFUSCATE_PROPS=(-p:DuploObfuscate=true -p:ArmDotLicenseFile="$ARMDOT_LICENSE_FILE_PATH" -p:DuploDevkitBuildDir="$PWD/build/")
+  OBFUSCATE_PROPS=(-p:DuploObfuscate=true -p:ArmDotLicenseFile="$ARMDOT_LICENSE_FILE_PATH" -p:DuploDevkitBuildDir="$ARMDOT_DIR/")
   echo "==> Obfuscating the extension assembly with ArmDot $ARMDOT_VERSION"
 fi
 
