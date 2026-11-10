@@ -67,7 +67,10 @@ On an EC2 host the provider prompt first probes whether the instance role can ac
    [configuration.md § Licensing](configuration.md#licensing). This is where a run can wait on you: the
    license server emails the address a link, and the run polls for up to 2 minutes after it is clicked.
 6. Resolves password and LLM provider: flag, then `.env`, then prompt.
-7. Generates `Encryption__MasterKey` and `Authentication__JwtSharedSecret` once, if unset.
+7. Generates `Encryption__MasterKey`, `Authentication__JwtSharedSecret` and `MONGO_ROOT_PASSWORD` once, if unset.
+   A run that would generate the mongo password over a data volume initialised before the key existed stops
+   instead, since the database would not know the new password: `--reset` recreates the database, or
+   `MONGO_ROOT_PASSWORD=authpass` in `.env` keeps it.
 8. `docker compose pull`, then `docker compose up -d`.
 9. Waits up to ~4.5 minutes for the studio to answer on `/healthz` — an anonymous route, because this
    happens before the admin token exists.
@@ -125,7 +128,7 @@ combine.
 `--reset` blanks these keys, then sets up fresh: `Authentication__LocalAdminEmail`,
 `Authentication__LocalAdminPassword`, `Authentication__SuperUsers`, `DEVKIT_MODEL`, `ANTHROPIC_API_KEY`,
 `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `Encryption__MasterKey`,
-`Authentication__JwtSharedSecret`, `DUPLO_ADMIN_TOKEN`, `EXTENSION_DEV_WORKSPACE_ID`,
+`Authentication__JwtSharedSecret`, `MONGO_ROOT_PASSWORD`, `DUPLO_ADMIN_TOKEN`, `EXTENSION_DEV_WORKSPACE_ID`,
 `EXTENSION_DEV_PERMSET_ID`, `EXTENSION_DEV_PERMSETGROUP_ID`, `QDRANT_PROVIDER_ID`, `QDRANT_SCOPE_ID`,
 `QDRANT_COLLECTION_ID`.
 

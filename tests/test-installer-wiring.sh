@@ -91,13 +91,35 @@ then ok; else bad "README lacks the builds the installer leaves alone or the dep
 
 t "README gives the manual recovery for a load that hangs the studio"
 if in_readme "docker compose stop duplo-ai-studio" \
-    && in_readme "docker compose exec mongo mongosh -u authuser -p authpass --authenticationDatabase admin duplo-ai-helpdesk \\" \
+    && in_readme "docker compose exec mongo mongosh -u authuser -p \"\$(grep '^MONGO_ROOT_PASSWORD=' .env | cut -d= -f2-)\" \\" \
+    && in_readme "--authenticationDatabase admin duplo-ai-helpdesk \\" \
     && in_readme "db.loaded_extensions.updateOne({ExtensionId: \"[id]\", IsCurrent: true}, {\$set: {Status: NumberInt(1)}})" \
     && in_readme "docker compose start duplo-ai-studio" \
     && in_readme 'The rebuild has to differ in content'
 then ok; else bad "README lacks the stop, disable-the-row, restart or fixed-rebuild steps"; fi
 
 echo
+t "run.sh generates MONGO_ROOT_PASSWORD once and blanks it on --reset"
+grep -qE 'getenv MONGO_ROOT_PASSWORD\)" \] \|\| setenv MONGO_ROOT_PASSWORD "\$\(openssl rand' run.sh \
+  && sed -n '/^if \[ "\$RESET" = 1 \]; then/,/^fi/p' run.sh | grep -q 'MONGO_ROOT_PASSWORD' && ok || bad "run.sh"
+
+t "run.sh refuses to generate a password over a mongo volume initialised with the old one"
+grep -q 'MONGO_ROOT_PASSWORD=authpass' run.sh && grep -qF -- '--reset' run.sh && ok || bad "run.sh"
+
+t ".env.example lists MONGO_ROOT_PASSWORD with the stable secrets"
+grep -qE '^MONGO_ROOT_PASSWORD=$' .env.example && ok || bad ".env.example"
+
+t "no file carries the old fixed mongo password, except as the documented way to keep an old database"
+left="$(grep -rIn --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist 'authpass' . \
+  | grep -v 'MONGO_ROOT_PASSWORD=authpass' | grep -v '^./tests/test-installer-wiring.sh:')"
+[ -z "$left" ] && ok || bad "$(printf '%s' "$left" | cut -d: -f1,2 | tr '\n' ' ')"
+
+t "README's mongosh recovery reads the password from .env"
+in_readme 'mongosh -u authuser -p "$(grep' && in_readme 'MONGO_ROOT_PASSWORD' && ok || bad "README.md"
+
+t "configuration.md and cli-reference.md list MONGO_ROOT_PASSWORD with the generated secrets"
+grep -q '`MONGO_ROOT_PASSWORD`' docs/configuration.md && grep -q '`MONGO_ROOT_PASSWORD`' docs/cli-reference.md && ok || bad "docs"
+
 echo "installer wiring, rendered:"
 
 . scripts/_runtime.sh
@@ -170,6 +192,13 @@ if mode == "set":
     senv = studio.get("environment") or {}
     out("studio calls the installer on the compose network", senv.get("Extensions__InstallerUrl") == "http://installer:8080",
         senv.get("Extensions__InstallerUrl"))
+    menv = svc.get("mongo", {}).get("environment") or {}
+    out("mongo root password comes from .env", menv.get("MONGO_INITDB_ROOT_PASSWORD") == "fixture-mongo",
+        menv.get("MONGO_INITDB_ROOT_PASSWORD"))
+    out("studio connects to mongo with the generated password",
+        senv.get("MongoDB__ConnectionString") == "mongodb://authuser:fixture-mongo@mongo:27017/?retryWrites=false",
+        senv.get("MongoDB__ConnectionString"))
+    out("installer never receives the mongo password", unset("MONGO_ROOT_PASSWORD"), env.get("MONGO_ROOT_PASSWORD"))
 else:
     out("EXTENSIONS_ENABLED defaults to true", env.get("EXTENSIONS_ENABLED") == "true", env.get("EXTENSIONS_ENABLED"))
     out("EXTENSIONS_SOURCE defaults to customer", env.get("EXTENSIONS_SOURCE") == "customer", env.get("EXTENSIONS_SOURCE"))
@@ -194,7 +223,7 @@ else:
   if J="$(render INSTALLER_TAG=fixture-tag STUDIO_TAG=studio-fixture Authentication__JwtSharedSecret=fixture-secret \
         Licensing__Token=fixture-license 'EXTENSIONS_EXCLUDE=["a.b"]' LICENSE_SERVER_URL=https://license.example \
         ANTHROPIC_API_KEY=sk-fixture AWS_SECRET_ACCESS_KEY=aws-fixture Authentication__LocalAdminPassword=pw \
-        Encryption__MasterKey=mk)"; then
+        Encryption__MasterKey=mk MONGO_ROOT_PASSWORD=fixture-mongo)"; then
     tally < <(printf '%s' "$J" | check set)
   else
     t "compose config renders with every key set"; bad "$(head -3 "$TMP/err" | tr '\n' ' ')"

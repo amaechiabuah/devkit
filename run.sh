@@ -205,6 +205,13 @@ runtime_rosetta_check || exit 1
 
 # ── .env helpers (line-based; safe for tokens/keys with special chars) ────────
 getenv() { grep -E "^$1=" "$ENV" 2>/dev/null | head -1 | cut -d= -f2- || true; }
+# The compose project name, which prefixes every volume the stack owns. Compose derives it from the directory name
+# unless COMPOSE_PROJECT_NAME says otherwise, lowercased and stripped to [a-z0-9_-].
+compose_project() {
+  local n; n="$(getenv COMPOSE_PROJECT_NAME)"; [ -n "${COMPOSE_PROJECT_NAME:-}" ] && n="$COMPOSE_PROJECT_NAME"
+  [ -n "$n" ] || n="$(basename "$PWD")"
+  printf '%s' "$n" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]//g; s/^[_-]+//'
+}
 setenv() {
   python3 - "$ENV" "$1" "${2-}" <<'PY'
 import sys
@@ -660,7 +667,7 @@ if [ "$RESET" = 1 ]; then
   for k in Authentication__LocalAdminEmail Authentication__LocalAdminPassword Authentication__SuperUsers \
            DEVKIT_MODEL ANTHROPIC_API_KEY AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
            CLAUDE_MODEL CLAUDE_EXTRA_MODELS "${GATEWAY_KEYS[@]}" "${SUBSCRIPTION_KEYS[@]}" \
-           Encryption__MasterKey Authentication__JwtSharedSecret DUPLO_ADMIN_TOKEN EXTENSION_DEV_WORKSPACE_ID \
+           Encryption__MasterKey Authentication__JwtSharedSecret MONGO_ROOT_PASSWORD DUPLO_ADMIN_TOKEN EXTENSION_DEV_WORKSPACE_ID \
            EXTENSION_DEV_PERMSET_ID EXTENSION_DEV_PERMSETGROUP_ID \
            QDRANT_PROVIDER_ID QDRANT_SCOPE_ID QDRANT_COLLECTION_ID; do
     setenv "$k" ""
@@ -1026,6 +1033,18 @@ setenv AIStudio__IsMasterDisabled true
 # embedded mid-key, which rendered as a wrapped line in .env and failed the backend's key validation.
 [ -n "$(getenv Encryption__MasterKey)" ] || setenv Encryption__MasterKey "$(openssl rand -base64 96 | tr -d '\r\n')"
 [ -n "$(getenv Authentication__JwtSharedSecret)" ] || setenv Authentication__JwtSharedSecret "$(openssl rand -hex 32)"
+# Mongo takes the root password only when it initialises an empty data volume, so a volume from before this key
+# existed still answers to the old fixed password and a generated one would lock the studio out of it. --reset has
+# already removed the volume by this point, so only a plain run over an old volume is refused.
+if [ -z "$(getenv MONGO_ROOT_PASSWORD)" ] && [ "$RESET" != 1 ] \
+   && [ -n "$("$RUNTIME" volume ls -q --filter label=com.docker.compose.volume=mongo_data \
+                --filter label=com.docker.compose.project="$(compose_project)" 2>/dev/null)" ]; then
+  echo "  ✖ MongoDB's data volume was initialised with the old fixed password, and this run would generate a new one" >&2
+  echo "    the database does not know. Run ./run.sh --reset to recreate the database with a generated password," >&2
+  echo "    or set MONGO_ROOT_PASSWORD=authpass in .env to keep this database as it is." >&2
+  exit 1
+fi
+[ -n "$(getenv MONGO_ROOT_PASSWORD)" ] || setenv MONGO_ROOT_PASSWORD "$(openssl rand -hex 32)"
 
 if [ "$MODEL" = anthropic ]; then
   KEY="$(resolve "$F_ANTHROPIC" ANTHROPIC_API_KEY 'Anthropic API key' secret)"

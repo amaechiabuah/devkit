@@ -202,6 +202,7 @@ Managed by `./run.sh` — leave them blank in a fresh `.env` and let it prompt.
 | `Authentication__FrontendBaseUrl` | Defaults to `http://localhost:$UI_PORT`. |
 | `Authentication__JwtSharedSecret` | Generated once (`openssl rand -hex 32`). Regenerated only on `--reset`. |
 | `Encryption__MasterKey` | Generated once (`openssl rand -base64 96`). Regenerated only on `--reset`. |
+| `MONGO_ROOT_PASSWORD` | Mongo's root password, generated once (`openssl rand -hex 32`). Mongo applies it only when it initialises an empty data volume, so it is regenerated only on `--reset`, and a run that would generate one over an existing volume stops and says so. |
 | `AIStudio__IsMasterDisabled` | `true`. Required for standalone operation with no DuploCloud master. |
 | `AIStudio__DevKitMode` | `true`. Dev-kit only: exposes the per-extension **Clean Database** admin action, which drops one extension's data collections. |
 
