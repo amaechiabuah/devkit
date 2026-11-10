@@ -64,13 +64,24 @@ ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' build/ArmDo
 EXT="samples/.test-build-obfuscation"
 # RUN_FROM=<dir> runs the script from that directory instead of the repo root, to test relative license paths.
 # PRESET_REF=<include> adds a ProjectReference with that Include, as a csproj would write it, to the entry project and
-# creates the referenced project; PRESET_REF_SUB=<include> does the same from that project, one level down.
+# creates the referenced project unless it exists or the Include holds an MSBuild property; PRESET_REF_SUB=<include>
+# does the same from that project, one level down. PRESET_REF_CHAIN='<include>;<include>…' adds each from the project
+# the previous one created, for deeper trees. PRESET_REF_MULTILINE=1 writes the element across two lines, as a
+# csproj with several attributes does. PRESET_REF_TARGETS=<dir> drops a Directory.Build.targets under backend/<dir>.
 add_ref() {
   local from="$1" to
   to="$(dirname "$from")/$(printf '%s' "$2" | tr '\\' '/')"
-  mkdir -p "$(dirname "$to")" && printf '%s\n' '<Project Sdk="Microsoft.NET.Sdk">' '</Project>' > "$to"
-  INC="$2" awk '/<\/Project>/{print "  <ItemGroup>"; print "    <ProjectReference Include=\"" ENVIRON["INC"] "\" />"; print "  </ItemGroup>"} {print}' \
-    "$from" > "$from.tmp" && mv "$from.tmp" "$from"
+  case "$2" in
+    *'$('*) ;;
+    *) [ -f "$to" ] || { mkdir -p "$(dirname "$to")" && printf '%s\n' '<Project Sdk="Microsoft.NET.Sdk">' '</Project>' > "$to"; } ;;
+  esac
+  if [ -n "${PRESET_REF_MULTILINE:-}" ]; then
+    INC="$2" awk '/<\/Project>/{print "  <ItemGroup>"; print "    <ProjectReference"; print "      Include=\"" ENVIRON["INC"] "\""; print "      PrivateAssets=\"all\" />"; print "  </ItemGroup>"} {print}' \
+      "$from" > "$from.tmp" && mv "$from.tmp" "$from"
+  else
+    INC="$2" awk '/<\/Project>/{print "  <ItemGroup>"; print "    <ProjectReference Include=\"" ENVIRON["INC"] "\" />"; print "  </ItemGroup>"} {print}' \
+      "$from" > "$from.tmp" && mv "$from.tmp" "$from"
+  fi
   REF_CREATED="$to"
 }
 run_build() {
@@ -81,6 +92,12 @@ run_build() {
     add_ref "$EXT/backend/Duplo.Extension.HelloWorld.csproj" "$PRESET_REF"
     [ -n "${PRESET_REF_SUB:-}" ] && add_ref "$REF_CREATED" "$PRESET_REF_SUB"
   fi
+  if [ -n "${PRESET_REF_CHAIN:-}" ]; then
+    REF_CREATED="$EXT/backend/Duplo.Extension.HelloWorld.csproj"
+    while IFS= read -r inc; do [ -n "$inc" ] && add_ref "$REF_CREATED" "$inc"; done < <(printf '%s\n' "$PRESET_REF_CHAIN" | tr ';' '\n')
+  fi
+  [ -n "${PRESET_REF_TARGETS:-}" ] && mkdir -p "$EXT/backend/$PRESET_REF_TARGETS" \
+    && echo '<Project />' > "$EXT/backend/$PRESET_REF_TARGETS/Directory.Build.targets"
   [ -n "${PRESET_TARGETS:-}" ] && echo "$PRESET_TARGETS" > "$EXT/backend/Directory.Build.targets"
   [ -n "${PRESET_MANIFEST_KEY:-}" ] && jq '.obfuscation = {tool: "armdot", version: "0.0.0"}' samples/helloworld/manifest.json \
     > "$EXT/manifest.json"
@@ -175,7 +192,7 @@ got="$(jq -r '.obfuscation.version' "$TMP/manifest.json" 2>/dev/null)"
 # plain assembly in a bundle stamped obfuscated. The Include paths use backslashes, as a csproj written on Windows does.
 t "licensed build: a reference outside backend/ fails before any dotnet call and names the project"
 PRESET_REF='..\shared\Shared.csproj' run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
-[ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'lead outside it' "$TMP/build.log" \
+[ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'lead to projects that do not' "$TMP/build.log" \
   && grep -q 'Duplo.Extension.HelloWorld.csproj -> .*/shared/Shared.csproj' "$TMP/build.log" \
   && [ ! -f "$EXT/backend/Directory.Build.targets" ] && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet") $(tail -4 "$TMP/build.log")"
 
@@ -192,6 +209,37 @@ t "licensed build: a reference that leaves backend/ from a referenced project is
 PRESET_REF='Shared\Shared.csproj' PRESET_REF_SUB='..\..\common\Common.csproj' run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
 [ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'Shared.csproj -> .*/common/Common.csproj' "$TMP/build.log" \
   && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
+
+t "licensed build: a reference that leaves backend/ three projects down is caught"
+PRESET_REF_CHAIN='Api\Api.csproj;..\Services\Services.csproj;..\..\shared\Domain.csproj' run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+[ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'Services.csproj -> .*/shared/Domain.csproj' "$TMP/build.log" \
+  && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
+
+t "licensed build: two projects inside backend/ that reference each other build, so a cycle ends the walk"
+PRESET_REF_CHAIN='Shared\Shared.csproj;..\Duplo.Extension.HelloWorld.csproj' run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+[ "$RC" = 0 ] && [ "$(jq -r '.obfuscation.version' "$TMP/manifest.json" 2>/dev/null)" = "$ARMDOT_VERSION" ] \
+  && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
+
+# MSBuild imports the nearest Directory.Build.targets above a project, so one between a referenced project and backend/
+# replaces the dropped import for that project and it publishes plain.
+t "licensed build: a Directory.Build.targets between a referenced project and backend/ is refused and named"
+PRESET_REF='Shared\Impl\Impl.csproj' PRESET_REF_TARGETS=Shared run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+[ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'Impl.csproj, which imports .*Shared/Directory.Build.targets' "$TMP/build.log" \
+  && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
+
+t "licensed build: an Include built from an MSBuild property is refused rather than read as inside"
+PRESET_REF='$(MSBuildProjectDirectory)\..\..\shared\Shared.csproj' run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+[ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -qF 'HelloWorld.csproj -> $(MSBuildProjectDirectory)/../../shared/Shared.csproj' "$TMP/build.log" \
+  && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
+
+t "licensed build: a ProjectReference written across lines is still read"
+PRESET_REF='..\shared\Shared.csproj' PRESET_REF_MULTILINE=1 run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+[ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'HelloWorld.csproj -> .*/shared/Shared.csproj' "$TMP/build.log" \
+  && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
+
+t "the refusal says to exclude the moved folder from the entry project's default items"
+PRESET_REF='..\shared\Shared.csproj' run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+grep -q 'DefaultItemExcludes' "$TMP/build.log" && ok || bad "$(tail -4 "$TMP/build.log")"
 
 echo "passed $PASS, failed $FAIL"
 [ "$FAIL" -eq 0 ]
