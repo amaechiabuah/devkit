@@ -207,7 +207,7 @@ echo "    naming OK"
 # dist/extension.zip. A non-empty DUPLO_SDK_VERSIONS (one per line, or comma-separated) builds one bundle per
 # version, each restored from the package feed (nuget.config's nuget.org source) rather than a host, so no
 # DUPLO_HOST is needed to build. Each goes to dist/sdk-<version>/extension.zip, which is what the release action
-# walks. The release action hands the list over one per line, and a repository variable holds either form.
+# walks. The release action hands the list over one per line, so a repository variable holds that form too.
 SDK_VERSIONS=()
 for v in $(printf '%s' "${DUPLO_SDK_VERSIONS:-}" | tr ',' ' '); do
   [ -n "$v" ] && SDK_VERSIONS+=("$v")

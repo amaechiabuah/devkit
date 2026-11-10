@@ -160,7 +160,7 @@ Your `extensions/` directory is **never** touched by any of these — it is only
 
 | Script | What it does |
 | --- | --- |
-| `build-extension.sh <extension-dir>` | Validate naming, fetch the host SDK, `dotnet publish`, `npm build`, and zip to `<dir>/dist/extension.zip`. With `DUPLO_SDK_VERSIONS` set to a list of versions, one per line or comma-separated, it restores each of those SDK versions from the package feed instead, with no host, and writes one `<dir>/dist/sdk-<v>/extension.zip` per version. |
+| `build-extension.sh <extension-dir>` | Validate naming, fetch the host SDK, `dotnet publish`, `npm build`, and zip to `<dir>/dist/extension.zip`. With `DUPLO_SDK_VERSIONS` set to a list of versions, one per line, it restores each of those SDK versions from the package feed instead, with no host, and writes one `<dir>/dist/sdk-<v>/extension.zip` per version. |
 | `build-all.sh` | Build every `extensions/<name>/manifest.json` in the repo. What CI runs. |
 | `deploy-extension.sh <path-to-extension.zip>` | Hot-load one bundle onto the platform — no restart. |
 | `deploy-all.sh` | Hot-load every built bundle. Run after `build-all.sh`. |
