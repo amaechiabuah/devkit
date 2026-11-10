@@ -266,17 +266,19 @@ OBF_TARGETS="$DIR/backend/Directory.Build.targets"
 # project_refs <csproj>: the projects it references, one absolute path per line. An Include is written with either
 # separator and, when relative, is relative to the csproj's directory. The directory part is resolved on disk so a
 # ../ segment compares against backend/ by location; one that does not exist is left as written for dotnet to report.
-# The file is read as one line first, since an element with several attributes puts Include on its own line. An
-# Include that holds an MSBuild property has no directory on disk as written, so it is printed as written, with no
-# prefix, and the caller reads it as outside.
+# The file is read as one line first, since an element with several attributes puts Include on its own line, and
+# XML comments are dropped so a reference left commented out is not read. An Include that holds an MSBuild property,
+# a wildcard or a list has no directory on disk as written, so it is printed as written, with no prefix, and the
+# caller reads it as outside.
 project_refs() {
   local csproj="$1" dir ref
   dir="$(cd "$(dirname "$csproj")" && pwd -P)"
-  { tr '\n' ' ' < "$csproj" 2>/dev/null | grep -oE '<ProjectReference[^>]*Include="[^"]+"' || true; } \
+  { tr '\n' ' ' < "$csproj" 2>/dev/null | sed -E 's/<!--([^-]|-[^-])*-->//g' \
+      | grep -oE '<ProjectReference[^>]*Include="[^"]+"' || true; } \
     | sed -E 's/.*Include="([^"]+)".*/\1/' | tr '\\' '/' \
     | while IFS= read -r ref; do
         case "$ref" in
-          *'$('*) printf '%s\n' "$ref"; continue ;;
+          *'$('*|*'*'*|*'?'*|*';'*) printf '%s\n' "$ref"; continue ;;
           /*) ;;
           *) ref="$dir/$ref" ;;
         esac

@@ -67,15 +67,19 @@ EXT="samples/.test-build-obfuscation"
 # creates the referenced project unless it exists or the Include holds an MSBuild property; PRESET_REF_SUB=<include>
 # does the same from that project, one level down. PRESET_REF_CHAIN='<include>;<include>…' adds each from the project
 # the previous one created, for deeper trees. PRESET_REF_MULTILINE=1 writes the element across two lines, as a
-# csproj with several attributes does. PRESET_REF_TARGETS=<dir> drops a Directory.Build.targets under backend/<dir>.
+# csproj with several attributes does. PRESET_REF_COMMENTED=1 writes the element inside an XML comment, as a reference
+# left behind is. PRESET_REF_TARGETS=<dir> drops a Directory.Build.targets under backend/<dir>.
 add_ref() {
   local from="$1" to
   to="$(dirname "$from")/$(printf '%s' "$2" | tr '\\' '/')"
   case "$2" in
-    *'$('*) ;;
+    *'$('*|*'*'*|*'?'*|*';'*) ;;
     *) [ -f "$to" ] || { mkdir -p "$(dirname "$to")" && printf '%s\n' '<Project Sdk="Microsoft.NET.Sdk">' '</Project>' > "$to"; } ;;
   esac
-  if [ -n "${PRESET_REF_MULTILINE:-}" ]; then
+  if [ -n "${PRESET_REF_COMMENTED:-}" ]; then
+    INC="$2" awk '/<\/Project>/{print "  <ItemGroup>"; print "    <!-- <ProjectReference Include=\"" ENVIRON["INC"] "\" /> -->"; print "  </ItemGroup>"} {print}' \
+      "$from" > "$from.tmp" && mv "$from.tmp" "$from"
+  elif [ -n "${PRESET_REF_MULTILINE:-}" ]; then
     INC="$2" awk '/<\/Project>/{print "  <ItemGroup>"; print "    <ProjectReference"; print "      Include=\"" ENVIRON["INC"] "\""; print "      PrivateAssets=\"all\" />"; print "  </ItemGroup>"} {print}' \
       "$from" > "$from.tmp" && mv "$from.tmp" "$from"
   else
@@ -235,6 +239,21 @@ PRESET_REF='$(MSBuildProjectDirectory)\..\..\shared\Shared.csproj' run_build ARM
 t "licensed build: a ProjectReference written across lines is still read"
 PRESET_REF='..\shared\Shared.csproj' PRESET_REF_MULTILINE=1 run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
 [ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'HelloWorld.csproj -> .*/shared/Shared.csproj' "$TMP/build.log" \
+  && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
+
+t "licensed build: an Include with a wildcard is refused as written rather than read as inside"
+PRESET_REF='..\libs\*\Lib.csproj' run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+[ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -qF 'HelloWorld.csproj -> ../libs/*/Lib.csproj' "$TMP/build.log" \
+  && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
+
+t "licensed build: an Include listing several projects is refused as written"
+PRESET_REF='Shared\Shared.csproj;..\other\Other.csproj' run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+[ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -qF 'HelloWorld.csproj -> Shared/Shared.csproj;../other/Other.csproj' "$TMP/build.log" \
+  && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
+
+t "licensed build: a commented-out reference to a project still on disk is not read"
+PRESET_REF='..\old\Old.csproj' PRESET_REF_COMMENTED=1 run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
+[ "$RC" = 0 ] && [ -s "$TMP/calls/dotnet" ] && ! grep -q 'Old.csproj' "$TMP/build.log" \
   && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
 
 t "the refusal says to exclude the moved folder from the entry project's default items"
