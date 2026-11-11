@@ -212,6 +212,23 @@ compose_project() {
   [ -n "$n" ] || n="$(basename "$PWD")"
   printf '%s' "$n" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]//g; s/^[_-]+//'
 }
+# Mongo takes its root password only when it initialises an empty data volume, so a volume from before
+# MONGO_ROOT_PASSWORD existed still answers to the old fixed password, and a generated one would lock the studio out
+# of it. The volume is looked up by its compose name, and a runtime that cannot list volumes stops the run too, since
+# its empty answer would otherwise read as no volume. A --reset whose teardown worked leaves nothing here to find.
+refuse_old_mongo_volume() {
+  local err
+  if ! err="$("$RUNTIME" volume ls -q 2>&1 >/dev/null)"; then
+    echo "  ✖ $RUNTIME could not list volumes, so whether MongoDB's data volume predates the generated password is unknown:" >&2
+    echo "    $err" >&2
+    exit 1
+  fi
+  "$RUNTIME" volume inspect "$(compose_project)_mongo_data" >/dev/null 2>&1 || return 0
+  echo "  ✖ MongoDB's data volume was initialised with the old fixed password, and this run would generate a new one" >&2
+  echo "    the database does not know. Run ./run.sh --reset to recreate the database with a generated password," >&2
+  echo "    or set MONGO_ROOT_PASSWORD=authpass in .env to keep this database as it is." >&2
+  exit 1
+}
 setenv() {
   python3 - "$ENV" "$1" "${2-}" <<'PY'
 import sys
@@ -1033,17 +1050,7 @@ setenv AIStudio__IsMasterDisabled true
 # embedded mid-key, which rendered as a wrapped line in .env and failed the backend's key validation.
 [ -n "$(getenv Encryption__MasterKey)" ] || setenv Encryption__MasterKey "$(openssl rand -base64 96 | tr -d '\r\n')"
 [ -n "$(getenv Authentication__JwtSharedSecret)" ] || setenv Authentication__JwtSharedSecret "$(openssl rand -hex 32)"
-# Mongo takes the root password only when it initialises an empty data volume, so a volume from before this key
-# existed still answers to the old fixed password and a generated one would lock the studio out of it. --reset has
-# already removed the volume by this point, so only a plain run over an old volume is refused.
-if [ -z "$(getenv MONGO_ROOT_PASSWORD)" ] && [ "$RESET" != 1 ] \
-   && [ -n "$("$RUNTIME" volume ls -q --filter label=com.docker.compose.volume=mongo_data \
-                --filter label=com.docker.compose.project="$(compose_project)" 2>/dev/null)" ]; then
-  echo "  ✖ MongoDB's data volume was initialised with the old fixed password, and this run would generate a new one" >&2
-  echo "    the database does not know. Run ./run.sh --reset to recreate the database with a generated password," >&2
-  echo "    or set MONGO_ROOT_PASSWORD=authpass in .env to keep this database as it is." >&2
-  exit 1
-fi
+[ -n "$(getenv MONGO_ROOT_PASSWORD)" ] || refuse_old_mongo_volume
 [ -n "$(getenv MONGO_ROOT_PASSWORD)" ] || setenv MONGO_ROOT_PASSWORD "$(openssl rand -hex 32)"
 
 if [ "$MODEL" = anthropic ]; then
