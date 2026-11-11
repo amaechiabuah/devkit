@@ -108,7 +108,7 @@ jobs:
           role-to-assume: ${{ vars.EXTENSION_PUBLISHER_ROLE_ARN }}
           aws-region: us-west-2
 
-      - uses: duplocloud/actions/release-extension@ed931a06e167da18c5a53bff343de1b3fce216e5 # v1, pin moves to the tagged release once duplocloud/actions merges the armdot-config-token input
+      - uses: duplocloud/actions/release-extension@89c429c5936078ee848daf21740071792da6c412 # v1
         if: steps.guard.outputs.build == 'true'
         with:
           console-api-key: ${{ secrets.CONSOLE_API_KEY }}
