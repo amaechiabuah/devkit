@@ -45,11 +45,11 @@ needs a DuploCloud credential.
 
 ### What you need from the console
 
-1. **A key for your team.** In your console team, create a custom role holding **Manage own agent
-   versions**, create a service account with that role, and store its API key as the repository secret
-   `CONSOLE_API_KEY`. That capability is the least the release needs: it reads and creates versions and
-   artifacts and asks for upload URLs, and nothing else. The console's Service Accounts guide has the
-   workflow. Then set the repository variable `CONSOLE_TEAM` to your team's slug, the segment after `/a/`
+1. **A key for your team.** In your console team, create a custom role holding **View own agents** and
+   **Manage own agent versions**, create a service account with that role, and store its API key as the
+   repository secret `CONSOLE_API_KEY`. The first is what lets the action find the extension, since every
+   read on your team's routes needs it. The second creates versions and artifacts and asks for upload URLs.
+   The console's Service Accounts guide has the workflow. Then set the repository variable `CONSOLE_TEAM` to your team's slug, the segment after `/a/`
    in the console's address bar. `release.yml` passes it to the action, which then uses your team's own
    routes. Without it the run stops before the build and names the variable, since the routes the action
    would use otherwise need a staff capability no customer key holds.
