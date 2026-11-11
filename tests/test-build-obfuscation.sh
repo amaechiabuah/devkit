@@ -19,13 +19,13 @@ ROOT="$PWD"
 mkdir -p "$TMP/sdkfeed" && echo pkg > "$TMP/sdkfeed/Duplocloud.AiHelpdesk.Sdk.1.0.6.nupkg"
 ( cd "$TMP/sdkfeed" && zip -q "$TMP/sdk.zip" ./*.nupkg )
 
-# curl: sdk-version answers {"version":"1.0.6"} through -o and -w, sdk-bundle copies the zip above to -o.
+# curl: sdk-version answers {"version":"1.0.6"}, or SDK_STUB_VERSION, through -o and -w; sdk-bundle copies the zip above to -o.
 cat > "$TMP/bin/curl" <<EOF
 #!/usr/bin/env bash
 out=""; url=""
 while [ \$# -gt 0 ]; do case "\$1" in -o) out=\$2; shift ;; http*) url=\$1 ;; esac; shift; done
 case "\$url" in
-  */sdk-version) printf '{"version":"1.0.6"}' > "\$out"; printf 200 ;;
+  */sdk-version) printf '{"version":"%s"}' "\${SDK_STUB_VERSION:-1.0.6}" > "\$out"; printf 200 ;;
   */sdk-bundle)  cp "$TMP/sdk.zip" "\$out" ;;
 esac
 EOF
@@ -34,10 +34,12 @@ EOF
 # baseline publish leaves one host-provided DLL and the extension publish leaves that one plus its own, so the
 # bundle ships exactly the extension's DLL. Each line also says whether Directory.Build.targets sat beside the
 # project at publish time, since an obfuscation flag without that import would stamp a bundle ArmDot never touched.
-# DOTNET_FAIL_EXT=1 makes the extension publish fail, to exercise cleanup on the failure path.
+# DOTNET_FAIL_EXT=1 makes the extension publish fail, to exercise cleanup on the failure path. --version answers
+# DOTNET_STUB_VERSION, 10.0.404 unless set, and every logged call carries the TargetFramework of the csproj in its cwd.
 cat > "$TMP/bin/dotnet" <<EOF
 #!/usr/bin/env bash
-echo "dotnet \$* targets=\$([ -f Directory.Build.targets ] && echo yes || echo no)" >> "$TMP/calls/dotnet"
+[ "\${1:-}" = --version ] && { echo "\${DOTNET_STUB_VERSION:-10.0.404}"; exit 0; }
+echo "dotnet \$* targets=\$([ -f Directory.Build.targets ] && echo yes || echo no) csproj-tfm=\$(sed -nE 's/.*<TargetFramework>([^<]+)<.*/\\1/p' ./*.csproj 2>/dev/null | head -1)" >> "$TMP/calls/dotnet"
 out=""; prev=""
 for a in "\$@"; do [ "\$prev" = -o ] && out=\$a; prev=\$a; done
 [ -n "\$out" ] || exit 0
@@ -156,6 +158,47 @@ t "a stale obfuscation key is replaced by a licensed build"
 PRESET_MANIFEST_KEY=1 run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
 got="$(jq -r '.obfuscation.version' "$TMP/manifest.json" 2>/dev/null)"
 [ "$got" = "$ARMDOT_VERSION" ] && ok || bad "$(jq -c .obfuscation "$TMP/manifest.json" 2>&1)"
+
+echo "target framework follows the host SDK:"
+
+t "host SDK 1.0.6: restore and publish both carry net8.0, and publish skips its own restore"
+run_build
+[ "$RC" = 0 ] && grep -q 'restore Duplo.Extension.HelloWorld.csproj.*-p:TargetFramework=net8.0' "$TMP/calls/dotnet" \
+  && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q -- '--no-restore.*-p:TargetFramework=net8.0' \
+  && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet")"
+
+t "host SDK 1.2.0: the extension builds for net10.0"
+SDK_STUB_VERSION=1.2.0 run_build
+[ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q -- '-p:TargetFramework=net10.0' \
+  && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet")"
+
+t "host SDK 1.10.0 compares as a number, not a string, so it builds for net10.0"
+SDK_STUB_VERSION=1.10.0 run_build
+[ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q -- '-p:TargetFramework=net10.0' \
+  && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet")"
+
+t "a prerelease host SDK 1.2.0-rc.1 builds for net10.0"
+SDK_STUB_VERSION=1.2.0-rc.1 run_build
+[ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q -- '-p:TargetFramework=net10.0' \
+  && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet")"
+
+t "the host-provided baseline project targets the same framework as the extension"
+SDK_STUB_VERSION=1.2.0 run_build
+[ "$RC" = 0 ] && grep 'publish _sdkbaseline.csproj' "$TMP/calls/dotnet" | grep -q 'csproj-tfm=net10.0' \
+  && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet")"
+
+t "the build log names the target framework beside the host SDK version"
+grep -q 'target framework: net10.0' "$TMP/build.log" && ok || bad "$(grep -i 'sdk version\|framework' "$TMP/build.log")"
+
+t "a .NET 8 toolchain is refused before any publish when the SDK needs net10.0, naming the toolchain"
+DOTNET_STUB_VERSION=8.0.128 SDK_STUB_VERSION=1.2.0 run_build
+[ "$RC" != 0 ] && ! grep -q 'publish' "$TMP/calls/dotnet" && grep -q 'NET SDK 10' "$TMP/build.log" \
+  && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
+
+t "a .NET 8 toolchain still builds for a host SDK that needs net8.0"
+DOTNET_STUB_VERSION=8.0.128 run_build
+[ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q -- '-p:TargetFramework=net8.0' \
+  && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
 
 echo "passed $PASS, failed $FAIL"
 [ "$FAIL" -eq 0 ]

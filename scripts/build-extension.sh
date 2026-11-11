@@ -2,7 +2,7 @@
 # Build an extension into <dir>/dist/extension.zip, against the locally-running platform's SDK feed.
 # Mirrors the duplo-extension-dev skill (fetch SDK → dotnet publish → npm build → zip).
 #
-# The build runs inside the builder container (.NET SDK 8 + Node 22) so Docker Compose is the only
+# The build runs inside the builder container (.NET SDK 10 + Node 22) so Docker Compose is the only
 # prerequisite. Pass --native, or set DUPLO_BUILD_NATIVE=1, to use a toolchain you installed yourself.
 # A build already running inside a container (e.g. the agent's) stays native automatically — see
 # scripts/_builder.sh.
@@ -221,6 +221,33 @@ if [ -z "$SDK_VER" ]; then
   exit 1
 fi
 echo "    host SDK version: $SDK_VER"
+
+# The SDK's reference assemblies fix the runtime an extension has to target: 1.2.0 moved the host to .NET 10, and an
+# assembly built for net10.0 does not load on a .NET 8 host, while one built for net8.0 loads on both. The target
+# framework therefore follows the SDK version rather than the csproj, so one checkout builds for whichever host it
+# points at, and the installer, which matches a build to a host by SDK version, only ever hands a host a build it
+# can load. A prerelease suffix is ignored, and the parts compare as numbers, so 1.10 sorts after 1.2.
+target_framework_for() {
+  local v="${1%%-*}" major minor
+  major="${v%%.*}"; minor="${v#*.}"; minor="${minor%%.*}"
+  if [ "${major:-0}" -gt 1 ] 2>/dev/null || { [ "${major:-0}" -eq 1 ] && [ "${minor:-0}" -ge 2 ]; } 2>/dev/null; then
+    echo net10.0
+  else
+    echo net8.0
+  fi
+}
+TFM="$(target_framework_for "$SDK_VER")"
+echo "    target framework: $TFM"
+# An older SDK cannot build a newer framework, and the failure it gives is a NETSDK error deep in the publish. The
+# pinned toolchain image moves in a reviewed change, so a build that needs more than it ships says so up front.
+NEED_DOTNET="${TFM#net}"; NEED_DOTNET="${NEED_DOTNET%%.*}"
+HAVE_DOTNET="$(dotnet --version 2>/dev/null | cut -d. -f1)"
+if [ -n "$HAVE_DOTNET" ] && [ "$HAVE_DOTNET" -lt "$NEED_DOTNET" ] 2>/dev/null; then
+  echo "ERROR: host SDK $SDK_VER needs a $TFM build, which needs .NET SDK $NEED_DOTNET, and this toolchain is .NET SDK $HAVE_DOTNET." >&2
+  echo "       In the builder container, set BUILDER_IMAGE to a toolchain that ships .NET SDK $NEED_DOTNET, or build the one in" >&2
+  echo "       build/Dockerfile.builder. With --native, install .NET SDK $NEED_DOTNET." >&2
+  exit 1
+fi
 mkdir -p "$DIR/backend/sdk-packages"
 curl -fsSL -m 120 "${auth[@]}" "$BASE_URL/v1/aiservicedesk/extensions/sdk-bundle" -o "$DIR/dist-sdk.zip" \
   || { echo "ERROR: failed to download the SDK bundle from $BASE_URL/v1/aiservicedesk/extensions/sdk-bundle" >&2; exit 1; }
@@ -282,8 +309,12 @@ if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
 fi
 
 echo "==> Building backend ($(basename "$CSPROJ"))"
-( cd "$DIR/backend" && dotnet publish "$(basename "$CSPROJ")" -c Release -o ../dist/backend -p:DuploSdkVersion="$SDK_VER" \
-    "${OBFUSCATE_PROPS[@]}" )
+# The framework is passed as a property so no csproj changes when the host moves. A property given to dotnet publish
+# does not reach the restore it runs first, which then resolves the csproj's own framework and the publish fails
+# with NETSDK1005, so restore runs on its own with the same property and publish skips its own.
+( cd "$DIR/backend" && dotnet restore "$(basename "$CSPROJ")" -p:TargetFramework="$TFM" -p:DuploSdkVersion="$SDK_VER" \
+    && dotnet publish "$(basename "$CSPROJ")" --no-restore -c Release -o ../dist/backend -p:TargetFramework="$TFM" \
+         -p:DuploSdkVersion="$SDK_VER" "${OBFUSCATE_PROPS[@]}" )
 
 echo "==> Building frontend"
 # Strict install, matching the host portal. Where a dependency has no Angular 22 release (ngx-toastr,
@@ -309,7 +340,7 @@ rm -rf "$BASELINE"; mkdir -p "$BASELINE"   # BASELINE defined + trap-guarded nea
 cat > "$BASELINE/_sdkbaseline.csproj" <<EOF
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>$TFM</TargetFramework>
     <UseAppHost>false</UseAppHost>
   </PropertyGroup>
   <ItemGroup>

@@ -88,7 +88,8 @@ studio.
 
 ## What a local run needs (checklist)
 - Base URL + an Administrator bearer token.
-- .NET 8 SDK + Node 22 (Angular 22 requires `^22.22.3 || ^24.15.0 || >=26.0.0`) + npm `>= 10.9.0` locally
+- .NET 10 SDK (it builds the `net8.0` an older host needs as well) + Node 22 (Angular 22 requires
+  `^22.22.3 || ^24.15.0 || >=26.0.0`) + npm `>= 10.9.0` locally
   (or use the in-platform agent image, which has all of them).
 - This skill dir (with `templates/helloworld/` + `reference/`).
 - Network access to the platform for `sdk-version`/`sdk-bundle` and `load-bundle`.
