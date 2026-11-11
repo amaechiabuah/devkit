@@ -49,10 +49,11 @@ needs a DuploCloud credential.
    **Manage own agent versions**, create a service account with that role, and store its API key as the
    repository secret `CONSOLE_API_KEY`. The first is what lets the action find the extension, since every
    read on your team's routes needs it. The second creates versions and artifacts and asks for upload URLs.
-   The console's Service Accounts guide has the workflow. Then set the repository variable `CONSOLE_TEAM` to your team's slug, the segment after `/a/`
-   in the console's address bar. `release.yml` passes it to the action, which then uses your team's own
-   routes. Without it the run stops before the build and names the variable, since the routes the action
-   would use otherwise need a staff capability no customer key holds.
+   The console's Service Accounts guide has the workflow. Then set the repository variable `CONSOLE_TEAM`
+   to your team's slug, the segment after `/a/` in the console's address bar. `release.yml` passes it to
+   the action, which then uses your team's own routes. Without it the run stops before the build and names
+   the variable, since the routes the action would use otherwise need a staff capability no customer key
+   holds.
 2. **One agent record per extension.** Under **Agents > Agents**, create an agent whose manifest id equals
    the `id` in the extension's `manifest.json`. The id has to fall inside one of your team's namespaces,
    which the same page lists. By default that is the reverse of your domain, so a team on `acme.io` names
