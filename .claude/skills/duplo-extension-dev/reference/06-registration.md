@@ -74,11 +74,16 @@ The host serves its own SDK as a NuGet feed:
 
 ## SDK version pinning — why exactness matters
 
-`ExtensionStudioLoader` **rejects** a bundle whose `manifest.sdkVersion` ≠ the host's running SDK version. The host
-version is read from the running `Duplo.Ai.Model` assembly, and the SDK feed is packed at that same version, so
-host runtime == feed == your extension's pin. A skew surfaces as `Could not load file or assembly
-'Duplo.Ai.DataManagement, Version=…'`. Always set `manifest.sdkVersion` from `sdk-version`, and build against
-the matching `sdk-bundle`.
+What the loader accepts depends on the host's SDK line. A host on SDK 1.0.x or 1.1.x **rejects** a bundle whose
+`manifest.sdkVersion` ≠ its running SDK version; a skew surfaces as `Could not load file or assembly
+'Duplo.Ai.DataManagement, Version=…'`. A host on SDK 1.2.0 or later loads a bundle built against an older SDK of
+the same major version, from its oldest compatible version (1.0.3 today) up to its own, and then reads the
+bundle's compiled metadata for SDK types or members the host no longer has, refusing it if any are missing. A
+bundle built against a newer SDK than the host's, or a different major version, is refused on either line. So a
+`net8.0` bundle built against 1.0.x keeps loading on a 1.2.0 host, while a `net10.0` bundle never loads on a
+.NET 8 host. For a new build, always set `manifest.sdkVersion` from `sdk-version` and compile against the
+matching `sdk-bundle`: the installer hands a host only a bundle whose SDK version matches, whatever the loader
+would accept.
 
 ## Reloading changed code — bump `manifest.version`
 

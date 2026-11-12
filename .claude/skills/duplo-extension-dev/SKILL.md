@@ -302,7 +302,7 @@ SDK_VER=$(printf '%s' "$SDK_RESP" | jq -r '.version // empty')
 curl -fsSL -H "Authorization: Bearer $DUPLO_TOKEN" "${DUPLO_BASE:-$DUPLO_HOST}/v1/aiservicedesk/extensions/sdk-bundle" -o /tmp/sdk.zip
 unzip -o /tmp/sdk.zip -d extensions/<name>/backend/sdk-packages
 ```
-Write `$SDK_VER` into `manifest.json` `sdkVersion` — the loader rejects a mismatch
+Write `$SDK_VER` into `manifest.json` `sdkVersion` — the loader checks it against the range it loads
 ([06-registration](reference/06-registration.md#sdk-version-pinning--why-exactness-matters)).
 
 ## Phase 4 — build backend + frontend
