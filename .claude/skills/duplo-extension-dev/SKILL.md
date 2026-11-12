@@ -308,7 +308,11 @@ Write `$SDK_VER` into `manifest.json` `sdkVersion` — the loader rejects a mism
 ## Phase 4 — build backend + frontend
 
 ```bash
-( cd extensions/<name>/backend && dotnet publish Duplo.Extension.<Name>.csproj -c Release -o ../dist/backend -p:DuploSdkVersion="$SDK_VER" )
+# SDK 1.2.0 and later ship net10.0 reference assemblies, older ones net8.0, and a net10.0 build does not load on a
+# .NET 8 host. Restore runs first because a property given to publish does not reach its implicit restore.
+case "$SDK_VER" in 0.*|1.0.*|1.1.*) TFM=net8.0 ;; *) TFM=net10.0 ;; esac
+( cd extensions/<name>/backend && dotnet restore Duplo.Extension.<Name>.csproj -p:TargetFramework="$TFM" -p:DuploSdkVersion="$SDK_VER" \
+    && dotnet publish Duplo.Extension.<Name>.csproj --no-restore -c Release -o ../dist/backend -p:TargetFramework="$TFM" -p:DuploSdkVersion="$SDK_VER" )
 ( cd extensions/<name>/frontend && { [ -f package-lock.json ] && npm ci || npm install; } && npm run build )
 ```
 **Keep the scaffold's `package-lock.json`** and use `npm ci` whenever it exists (plain strict `npm install` only as

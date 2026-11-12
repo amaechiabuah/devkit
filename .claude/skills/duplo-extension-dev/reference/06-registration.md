@@ -66,8 +66,11 @@ The host serves its own SDK as a NuGet feed:
 2. `GET …/extensions/sdk-bundle` → zip of `.nupkg`s; unzip into `backend/sdk-packages/`.
 3. `backend/nuget.config` points at `./sdk-packages`; the `.csproj` references
    `Duplocloud.AiHelpdesk.Sdk` `Version="[$(DuploSdkVersion)]" ExcludeAssets="runtime"` (compile-only).
-4. `dotnet publish backend -p:DuploSdkVersion=<version>` → ships only your DLL (SDK assemblies are NOT
-   bundled; the host's Default ALC provides them at load → shared type identity).
+4. `dotnet restore backend -p:TargetFramework=<tfm> -p:DuploSdkVersion=<version>`, then
+   `dotnet publish backend --no-restore -p:TargetFramework=<tfm> -p:DuploSdkVersion=<version>` → ships only your
+   DLL (SDK assemblies are NOT bundled; the host's Default ALC provides them at load → shared type identity).
+   `<tfm>` follows the SDK version: `net10.0` from 1.2.0, `net8.0` below it. A `net10.0` build does not load on a
+   .NET 8 host. Restore runs on its own because publish's implicit restore does not see the property.
 
 ## SDK version pinning — why exactness matters
 

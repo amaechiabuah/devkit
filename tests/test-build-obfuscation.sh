@@ -203,5 +203,40 @@ DOTNET_STUB_VERSION=8.0.128 run_build
 [ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q -- '-p:TargetFramework=net8.0' \
   && ok || bad "rc=$RC $(tail -4 "$TMP/build.log")"
 
+echo "the framework rule in the sources:"
+
+S=.claude/skills/duplo-extension-dev
+t "every sample and template backend picks its framework from the SDK version, net8.0 below 1.2.0 and net10.0 from it"
+missing=""
+for f in samples/*/backend/*.csproj $S/templates/helloworld/backend/*.csproj; do
+  grep -qF "VersionLessThan('\$(DuploSdkVersion)', '1.2.0'))\">net8.0</TargetFramework>" "$f" \
+    && grep -qF "'\$(TargetFramework)' == ''\">net10.0</TargetFramework>" "$f" \
+    && ! grep -q '<TargetFramework>net8.0</TargetFramework>' "$f" \
+    && [ "$(grep -n 'DuploSdkVersion Condition' "$f" | head -1 | cut -d: -f1)" -lt "$(grep -n 'VersionLessThan' "$f" | head -1 | cut -d: -f1)" ] \
+    || missing="$missing $f"
+done
+[ -z "$missing" ] && ok || bad "$missing"
+
+t "every sample and template csproj is well-formed XML, since a comment holding -- stops MSBuild loading it"
+missing=""
+for f in samples/*/backend/*.csproj $S/templates/helloworld/backend/*.csproj tests/fixtures/armdot-probe/Probe.csproj; do
+  python3 -c 'import sys, xml.dom.minidom; xml.dom.minidom.parse(sys.argv[1])' "$f" 2>/dev/null || missing="$missing $f"
+done
+[ -z "$missing" ] && ok || bad "$missing"
+
+t "the manual publish steps restore first and pass the framework property, as the script does"
+missing=""
+for f in $S/SKILL.md $S/templates/helloworld/README.md $S/reference/02-authoring-guide.md $S/reference/06-registration.md; do
+  grep -q 'dotnet restore' "$f" && grep -q -- '--no-restore' "$f" && grep -q 'p:TargetFramework' "$f" && grep -q '1\.2\.0' "$f" \
+    || missing="$missing $f"
+done
+[ -z "$missing" ] && ok || bad "$missing"
+
+t "the network-stack sample takes AWSSDK.EC2 from the SDK feed rather than pinning its own"
+grep -q 'AWSSDK.EC2" Version=' samples/network-stack/backend/Duplo.Extension.NetworkStack.csproj && bad "pin still present" || ok
+
+t "upgrading.md tells an existing project what the framework rule means for it"
+grep -q '^## .*\.NET 10' docs/upgrading.md && sed -n '/^## .*\.NET 10/,/^## /p' docs/upgrading.md | grep -q '1\.2\.0' && ok || bad "docs/upgrading.md"
+
 echo "passed $PASS, failed $FAIL"
 [ "$FAIL" -eq 0 ]
