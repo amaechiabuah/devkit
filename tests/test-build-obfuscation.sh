@@ -97,6 +97,9 @@ want="-p:DuploObfuscate=true -p:ArmDotLicenseFile=$TMP/lic.key -p:DuploDevkitBui
 [ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -qF -- "$want" \
   && ok || bad "rc=$RC $(cat "$TMP/calls/dotnet") $(tail -5 "$TMP/build.log")"
 
+t "licensed build: the restore carries the obfuscation properties, so the publish that skips its own restore has the ArmDot packages"
+grep 'restore Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -qF -- "$want" && ok || bad "$(cat "$TMP/calls/dotnet")"
+
 t "licensed build: Directory.Build.targets sits beside the csproj while the extension publishes"
 grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q 'targets=yes' && ok || bad "$(cat "$TMP/calls/dotnet")"
 

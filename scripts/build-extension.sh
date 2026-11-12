@@ -311,8 +311,11 @@ fi
 echo "==> Building backend ($(basename "$CSPROJ"))"
 # The framework is passed as a property so no csproj changes when the host moves. A property given to dotnet publish
 # does not reach the restore it runs first, which then resolves the csproj's own framework and the publish fails
-# with NETSDK1005, so restore runs on its own with the same property and publish skips its own.
+# with NETSDK1005, so restore runs on its own with the same properties and publish skips its own. The obfuscation
+# properties go to the restore too: they are what makes Directory.Build.targets import the ArmDot packages, and a
+# publish that skips its own restore can only load what the restore resolved.
 ( cd "$DIR/backend" && dotnet restore "$(basename "$CSPROJ")" -p:TargetFramework="$TFM" -p:DuploSdkVersion="$SDK_VER" \
+    "${OBFUSCATE_PROPS[@]}" \
     && dotnet publish "$(basename "$CSPROJ")" --no-restore -c Release -o ../dist/backend -p:TargetFramework="$TFM" \
          -p:DuploSdkVersion="$SDK_VER" "${OBFUSCATE_PROPS[@]}" )
 
