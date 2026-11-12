@@ -167,6 +167,12 @@ RUN_FROM="$TMP/elsewhere" run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key" DUPL
 [ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q 'DuploObfuscate=true' \
   && ok || bad "rc=$RC $(tail -3 "$TMP/build.log")"
 
+t "licensed build with the license in the shell and DUPLO_ARMDOT_DIR only in .env still finds the directory"
+printf 'DUPLO_ARMDOT_DIR=%s\n' "$ARMDOT_CFG" > "$TMP/dotenv"
+run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key" DUPLO_ARMDOT_DIR= DUPLO_ENV_FILE="$TMP/dotenv"
+[ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q 'DuploObfuscate=true' \
+  && ok || bad "rc=$RC $(tail -3 "$TMP/build.log")"
+
 t "licensed build with no DUPLO_ARMDOT_DIR fails before any dotnet call and names the variable"
 run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key" DUPLO_ARMDOT_DIR=
 [ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'DUPLO_ARMDOT_DIR' "$TMP/build.log" && grep -q 'duplocloud-internal/.github' "$TMP/build.log" \

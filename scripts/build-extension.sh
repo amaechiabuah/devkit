@@ -19,7 +19,8 @@ set -euo pipefail
 # shellcheck source=scripts/_builder.sh
 source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in the builder container
 builder_resolve_license || exit 1
-builder_resolve_armdot_dir || exit 1
+# An empty DUPLO_ARMDOT_DIR is left for builder_dispatch, which reads .env first and refuses it there if still unset.
+[ -z "${DUPLO_ARMDOT_DIR:-}" ] || builder_resolve_armdot_dir || exit 1
 cd "$(dirname "$0")/.."
 
 # Strip --native before the positional arg is read, so it works in either order.
