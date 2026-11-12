@@ -69,9 +69,8 @@ that run is never mistaken for a check against the console's real roots.
 
 DuploCloud's own extensions ship with their backend assembly obfuscated by ArmDot, the same protection the
 platform's assemblies carry. Only the extension's own assembly is processed. The SDK assemblies the host
-provides never ship in the bundle, so they are never touched. ArmDot runs with control-flow obfuscation and
-code virtualization only. Renaming and string hiding stay off, because both break the reflection the host
-uses to load an extension.
+provides never ship in the bundle, so they are never touched. Which protections are on is described in
+`armdot/README.md` in the private `duplocloud-internal/.github`, beside the files that set them.
 
 Obfuscation runs when `ARMDOT_LICENSE_FILE_PATH` names an ArmDot license file, and only for Release builds.
 The ArmDot build files, the props, targets, attributes and the targets template, are not in this public repository.

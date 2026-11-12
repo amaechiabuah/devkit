@@ -13,11 +13,13 @@
 #
 # Usage: ./scripts/build-extension.sh [--native] <extension-dir>   # e.g. ./extension or samples/helloworld
 set -euo pipefail
-# _builder.sh is sourced before the cd so the license path resolves against the caller's directory, not the repo
-# root. It defines functions only, and builder_dispatch (below) is what needs _target.sh sourced first.
+# _builder.sh is sourced before the cd so the license path and the ArmDot directory resolve against the caller's
+# directory, not the repo root. It defines functions only, and builder_dispatch (below) is what needs _target.sh
+# sourced first.
 # shellcheck source=scripts/_builder.sh
 source "$(dirname "$0")/_builder.sh"  # → native, or re-launch this build in the builder container
 builder_resolve_license || exit 1
+builder_resolve_armdot_dir || exit 1
 cd "$(dirname "$0")/.."
 
 # Strip --native before the positional arg is read, so it works in either order.
@@ -261,13 +263,12 @@ trap 'rm -rf "$BASELINE" 2>/dev/null || true' EXIT
 # rides in through a Directory.Build.targets dropped beside the csproj for this one build, so the extension's own
 # project file never changes. The ArmDot build files themselves (props, targets, attributes and that template) are
 # not in this repository: they are read from DUPLO_ARMDOT_DIR, which DuploCloud's release action fills from the
-# private shared repository, and which a laptop build points at a checkout of it. The props there say why only two
-# ArmDot features are on.
+# private shared repository, and which a laptop build points at a checkout of it.
 OBFUSCATE=0
 OBFUSCATE_PROPS=(-p:DuploObfuscate=false)
 OBF_TARGETS="$DIR/backend/Directory.Build.targets"
 if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
-  # Already absolute and checked by builder_resolve_license at the top, before the cd.
+  # Already absolute and checked by builder_resolve_armdot_dir at the top, before the cd.
   ARMDOT_DIR="${DUPLO_ARMDOT_DIR:-}"
   for f in ArmDot.Obfuscation.props ArmDot.Obfuscation.targets ArmDotObfuscationAssemblyInfo.cs Directory.Build.targets.template; do
     [ -n "$ARMDOT_DIR" ] && [ -f "$ARMDOT_DIR/$f" ] && continue

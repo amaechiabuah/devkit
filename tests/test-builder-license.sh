@@ -52,7 +52,7 @@ if [ "$rc" -ne 0 ] && [ ! -s "$TMP/docker.args" ] && grep -q 'DUPLO_ARMDOT_DIR' 
 
 t "no license variable: a DUPLO_ARMDOT_DIR is neither required nor mounted"
 : > "$TMP/docker.args"
-( unset ARMDOT_LICENSE_FILE_PATH DUPLO_ARMDOT_DIR; builder_run_direct scripts/build-extension.sh x ) >/dev/null 2>&1
+( unset ARMDOT_LICENSE_FILE_PATH; DUPLO_ARMDOT_DIR="$CFG" builder_run_direct scripts/build-extension.sh x ) >/dev/null 2>&1
 if [ -s "$TMP/docker.args" ] && ! grep -q 'DUPLO_ARMDOT_DIR' "$TMP/docker.args"; then ok; else bad "$(cat "$TMP/docker.args")"; fi
 
 t "license variable set to a relative path: mounted by its absolute form"

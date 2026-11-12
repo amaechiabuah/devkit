@@ -161,6 +161,12 @@ PRESET_MANIFEST_KEY=1 run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key"
 got="$(jq -r '.obfuscation.version' "$TMP/manifest.json" 2>/dev/null)"
 [ "$got" = "$ARMDOT_VERSION" ] && ok || bad "$(jq -c .obfuscation "$TMP/manifest.json" 2>&1)"
 
+t "licensed build with a relative DUPLO_ARMDOT_DIR resolves it against the directory the script runs from"
+mkdir -p "$TMP/elsewhere" && rm -rf "$TMP/elsewhere/armdot-rel" && cp -R "$ARMDOT_CFG" "$TMP/elsewhere/armdot-rel"
+RUN_FROM="$TMP/elsewhere" run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key" DUPLO_ARMDOT_DIR=armdot-rel
+[ "$RC" = 0 ] && grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q 'DuploObfuscate=true' \
+  && ok || bad "rc=$RC $(tail -3 "$TMP/build.log")"
+
 t "licensed build with no DUPLO_ARMDOT_DIR fails before any dotnet call and names the variable"
 run_build ARMDOT_LICENSE_FILE_PATH="$TMP/lic.key" DUPLO_ARMDOT_DIR=
 [ "$RC" != 0 ] && [ ! -s "$TMP/calls/dotnet" ] && grep -q 'DUPLO_ARMDOT_DIR' "$TMP/build.log" && grep -q 'duplocloud-internal/.github' "$TMP/build.log" \
