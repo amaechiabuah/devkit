@@ -484,6 +484,7 @@ builder_run_direct() {
     args+=(-e "ARMDOT_LICENSE_FILE_PATH=/run/armdot/license.key")
     args+=(-e "DUPLO_ARMDOT_DIR=/run/armdot/config")
   fi
+  args+=(-e "DUPLO_SDK_VERSIONS=${DUPLO_SDK_VERSIONS:-}")
 
   exec "$RUNTIME" "${args[@]}" "$BUILDER_IMAGE" "$script" "$@"
 }
