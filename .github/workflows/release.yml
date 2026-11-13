@@ -67,8 +67,11 @@ jobs:
       - name: Discover extensions
         id: guard
         run: |
+          # extension/manifest.json has no wildcard, so nullglob would keep it as a literal and the list would never
+          # be empty. Count it only when the file exists.
           shopt -s nullglob
-          dirs=(extensions/*/manifest.json extension/*/manifest.json extension/manifest.json)
+          dirs=(extensions/*/manifest.json extension/*/manifest.json)
+          [ -f extension/manifest.json ] && dirs+=(extension/manifest.json)
           if [ ${#dirs[@]} -gt 0 ]; then echo "build=true" >> "$GITHUB_OUTPUT"
           else echo "build=false" >> "$GITHUB_OUTPUT"; echo "::notice::No extensions/*/manifest.json — nothing to release."; fi
 

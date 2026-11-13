@@ -4,7 +4,7 @@
 #   DUPLO_HOST   — your platform base URL (e.g. https://portal.example.duplocloud.net)
 #   DUPLO_TOKEN  — an Administrator bearer token for that platform
 # By default the build fetches the host SDK feed from DUPLO_HOST (so it must be reachable from CI — a public
-# DuploCloud, not localhost). Set the repo variable DUPLO_SDK_VERSIONS (one per line, or comma-separated) to build
+# DuploCloud, not localhost). Set the repo variable DUPLO_SDK_VERSIONS (one version per line) to build
 # against those SDK versions from the package feed instead, with no host needed to build; the bundles land at
 # dist/sdk-<v>/extension.zip. Deploy (hot-load) still needs DUPLO_HOST, and runs on push to main and on a manual run
 # with deploy=true: scripts/deploy-all.sh loads the one bundle whose sdkVersion equals the host's, and fails when the
@@ -37,7 +37,7 @@ jobs:
       # would make a feed build (no host) fail in _target.sh, so DUPLO_HOST is required only for deploy now.
       DUPLO_HOST: ${{ secrets.DUPLO_HOST }}
       DUPLO_TOKEN: ${{ secrets.DUPLO_TOKEN }}
-      # SDK versions to build against, one per line or comma-separated, restored from the package feed. Empty builds
+      # SDK versions to build against, one per line, restored from the package feed. Empty builds
       # one bundle from the running host's SDK (needs DUPLO_HOST); set it to build one bundle per version, no host.
       DUPLO_SDK_VERSIONS: ${{ vars.DUPLO_SDK_VERSIONS }}
       # Lifted to env so the login step can gate on its presence: the `secrets` context is not available
