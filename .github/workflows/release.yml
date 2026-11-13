@@ -64,8 +64,11 @@ jobs:
       - name: Discover extensions
         id: guard
         run: |
+          # extension/manifest.json has no wildcard, so nullglob would keep it as a literal and the list would never
+          # be empty. Count it only when the file exists.
           shopt -s nullglob
-          dirs=(extensions/*/manifest.json extension/*/manifest.json extension/manifest.json)
+          dirs=(extensions/*/manifest.json extension/*/manifest.json)
+          [ -f extension/manifest.json ] && dirs+=(extension/manifest.json)
           if [ ${#dirs[@]} -gt 0 ]; then echo "build=true" >> "$GITHUB_OUTPUT"
           else echo "build=false" >> "$GITHUB_OUTPUT"; echo "::notice::No extensions/*/manifest.json — nothing to release."; fi
 
@@ -119,4 +122,8 @@ jobs:
           signing-cert: ${{ vars.CONSOLE_SIGNING_CERT }}
           armdot-license: ${{ secrets.ARMDOT_LICENSE_KEY }}
           bundle-bucket: ${{ vars.BUNDLE_BUCKET || 'duplo-helpdesk-channels' }}
+          # SDK versions to build against from the package feed, one per line, one bundle and one release per version.
+          # The action exports them to the build as DUPLO_SDK_VERSIONS, so a job env of that name would be overwritten.
+          # Empty builds one bundle from the host's SDK.
+          sdk-versions: ${{ vars.DUPLO_SDK_VERSIONS }}
           publish: ${{ inputs.publish || false }}

@@ -111,7 +111,8 @@ back out a build that hangs the studio when it starts. Stop the studio, disable 
 
 ```bash
 docker compose stop duplo-ai-studio
-docker compose exec mongo mongosh -u authuser -p authpass --authenticationDatabase admin duplo-ai-helpdesk \
+docker compose exec mongo mongosh -u authuser -p "$(grep '^MONGO_ROOT_PASSWORD=' .env | cut -d= -f2-)" \
+  --authenticationDatabase admin duplo-ai-helpdesk \
   --eval 'db.loaded_extensions.updateOne({ExtensionId: "[id]", IsCurrent: true}, {$set: {Status: NumberInt(1)}})'
 docker compose start duplo-ai-studio
 ```
