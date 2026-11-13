@@ -108,7 +108,7 @@ grep -q 'rotate_old_mongo_password' run.sh && ! grep -q 'MONGO_ROOT_PASSWORD=aut
   && sed -n '/^if \[ "\$RESET" = 1 \]; then/,/^fi/p' run.sh | grep -q 'MONGO_ROOT_PASSWORD_PENDING' && ok || bad "run.sh"
 
 # The rotation runs against a stub runtime and a scratch .env, so every branch is taken without a database. The stub
-# answers `volume` by whether VOL is set, records `compose up`, and plays mongosh: a password is accepted when it
+# answers `volume` by whether VOL is set, records `compose up` with the password it was given, and plays mongosh: a password is accepted when it
 # equals the one in the state file, and a changeUserPassword eval moves the state file to the value passed in
 # MONGO_NEW_PASSWORD. getenv, setenv, compose_project and sleep are stubbed around the functions under test.
 rotate_case() {  # rotate_case <VOL:0|1> <accepted password> [pending in .env]
@@ -121,7 +121,7 @@ echo "\$*" >> "$d/calls"
 case "\$1 \$2" in
   "volume ls") exit 0 ;;
   "volume inspect") [ "$1" = 1 ] && [ "\$3" = devkit_mongo_data ] && exit 0; exit 1 ;;
-  "compose up") exit 0 ;;
+  "compose up") echo "up-env:\${MONGO_ROOT_PASSWORD:-}" >> "$d/calls"; exit 0 ;;
   "compose exec")
     pw=""; new=""; js=""
     while [ \$# -gt 0 ]; do case "\$1" in -p) pw="\$2"; shift ;; -e) new="\${2#MONGO_NEW_PASSWORD=}"; shift ;; --eval) js="\$2"; shift ;; esac; shift; done
@@ -156,7 +156,8 @@ rotate_case 0 authpass
 t "rotation: an old volume gets a generated password applied through the old one, then written to .env"
 rotate_case 1 authpass
 [ "$R_RC" -eq 0 ] && grep -qE '^change:[0-9a-f]{64}$' <<<"$R_CALLS" && [ "$R_PW" = "$R_DB" ] && [ -n "$R_PW" ] && [ -z "$R_PENDING" ] \
-  && grep -q 'compose up -d mongo' <<<"$R_CALLS" && ok || bad "rc=$R_RC pw=$R_PW db=$R_DB pending=$R_PENDING calls=$R_CALLS $R_ERR"
+  && grep -q 'compose up -d mongo' <<<"$R_CALLS" && grep -q '^up-env:authpass$' <<<"$R_CALLS" \
+  && ok || bad "rc=$R_RC pw=$R_PW db=$R_DB pending=$R_PENDING calls=$R_CALLS $R_ERR"
 
 t "rotation: a pending password the database already answers to is promoted without another change"
 rotate_case 1 pend1234 pend1234

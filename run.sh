@@ -237,7 +237,11 @@ rotate_old_mongo_password() {
   pending="$(getenv MONGO_ROOT_PASSWORD_PENDING)"
   [ -n "$pending" ] || { pending="$(openssl rand -hex 32)"; setenv MONGO_ROOT_PASSWORD_PENDING "$pending"; }
   echo "==> MongoDB's data volume predates the generated password; rotating the root password in place…"
-  "$RUNTIME" compose up -d mongo >/dev/null 2>&1 || { echo "  ✖ $RUNTIME could not start mongo to rotate its password." >&2; exit 1; }
+  # The image refuses to start with the root username set and the password empty, even over an initialised volume
+  # where it applies neither, so the lone mongo gets the old password for this step. The full start below reads the
+  # new one from .env.
+  MONGO_ROOT_PASSWORD="$MONGO_OLD_PASSWORD" "$RUNTIME" compose up -d mongo >/dev/null 2>&1 \
+    || { echo "  ✖ $RUNTIME could not start mongo to rotate its password." >&2; exit 1; }
   for i in $(seq 1 30); do
     if mongo_eval "$pending" 'db.adminCommand({ping:1})'; then answers=pending; break; fi
     if mongo_eval "$MONGO_OLD_PASSWORD" 'db.adminCommand({ping:1})'; then answers=old; break; fi
