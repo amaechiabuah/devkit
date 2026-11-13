@@ -15,8 +15,9 @@
 # This file ships with the dev-kit. After scripts/init-project.sh makes the repo yours, set these repo secrets
 # (same as Extension CI): DUPLO_HOST + DUPLO_TOKEN, since the build fetches the host SDK feed from DUPLO_HOST, which
 # must be reachable from CI (a public DuploCloud, not localhost), and CONSOLE_API_KEY, the console key the action
-# registers versions with. Turn on immutable releases in the repository's settings, too; the action warns on every
-# release that lands mutable.
+# registers versions with. Outside Duplo's organizations that key belongs to your console team, so set the repo
+# variable CONSOLE_TEAM to the team's slug as well; the action then uses the team's own routes. Turn on immutable
+# releases in the repository's settings, too; the action warns on every release that lands mutable.
 #
 # In Duplo's own organizations (duplocloud, duplocloud-internal) the action also requires the signing key, the
 # certificate and the ArmDot license, mapped below from the org secrets CONSOLE_SIGNING_KEY and ARMDOT_LICENSE_KEY and
@@ -93,6 +94,7 @@ jobs:
           CONSOLE_DEV_SIGNING_CERT: ${{ vars.CONSOLE_DEV_SIGNING_CERT }}
           ARMDOT_LICENSE_KEY: ${{ secrets.ARMDOT_LICENSE_KEY }}
           EXTENSION_PUBLISHER_ROLE_ARN: ${{ vars.EXTENSION_PUBLISHER_ROLE_ARN }}
+          CONSOLE_TEAM: ${{ vars.CONSOLE_TEAM }}
         run: |
           missing=()
           for v in DUPLO_HOST DUPLO_TOKEN; do [ -n "${!v:-}" ] || missing+=("$v"); done
@@ -103,6 +105,7 @@ jobs:
                 for v in CONSOLE_SIGNING_KEY CONSOLE_SIGNING_CERT ARMDOT_LICENSE_KEY EXTENSION_PUBLISHER_ROLE_ARN; do
                   [ -n "${!v:-}" ] || missing+=("$v")
                 done ;;
+              *) [ -n "${CONSOLE_TEAM:-}" ] || missing+=(CONSOLE_TEAM) ;;
             esac
           else
             [ -n "${CONSOLE_DEV_API_KEY:-}" ] || missing+=(CONSOLE_DEV_API_KEY)
@@ -111,13 +114,15 @@ jobs:
                 for v in CONSOLE_DEV_SIGNING_KEY CONSOLE_DEV_SIGNING_CERT ARMDOT_LICENSE_KEY; do
                   [ -n "${!v:-}" ] || missing+=("$v")
                 done ;;
+              *) [ -n "${CONSOLE_TEAM:-}" ] || missing+=(CONSOLE_TEAM) ;;
             esac
           fi
           [ ${#missing[@]} -eq 0 ] && exit 0
           echo "::error::This release needs ${missing[*]} set as repository or organization secrets and variables. The" \
             "DUPLO_* secrets name the host the build takes its SDK from, the console key registers the version (CONSOLE_API_KEY" \
-            "on main, CONSOLE_DEV_API_KEY on dev and rc), and in DuploCloud's organizations the signing and license values" \
-            "for that side are required, plus the role variable on main. See docs/releasing-extensions.md."
+            "on main, CONSOLE_DEV_API_KEY on dev and rc), CONSOLE_TEAM names the console team that key belongs to outside" \
+            "DuploCloud's organizations, and in those organizations the signing and license values for that side are" \
+            "required, plus the role variable on main. See docs/releasing-extensions.md."
           exit 1
 
       # Only Duplo's organizations hold the role, only the repositories its trust list names can assume it, and the trust
@@ -139,6 +144,7 @@ jobs:
           # Each side has its own console, keys and bucket. main is prod; dev and rc are the non-prod side.
           console-api-key: ${{ env.PROD == 'true' && secrets.CONSOLE_API_KEY || secrets.CONSOLE_DEV_API_KEY }}
           console-url: ${{ env.PROD == 'true' && (vars.CONSOLE_URL || 'https://console.duplocloud.com') || (vars.CONSOLE_DEV_URL || 'https://dev-console.prod-apps.duplocloud.net') }}
+          console-team: ${{ vars.CONSOLE_TEAM }}
           signing-key: ${{ env.PROD == 'true' && secrets.CONSOLE_SIGNING_KEY || secrets.CONSOLE_DEV_SIGNING_KEY }}
           signing-cert: ${{ env.PROD == 'true' && vars.CONSOLE_SIGNING_CERT || vars.CONSOLE_DEV_SIGNING_CERT }}
           armdot-license: ${{ secrets.ARMDOT_LICENSE_KEY }}
