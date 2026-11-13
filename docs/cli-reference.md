@@ -209,9 +209,9 @@ dev-kit URL used by upgrades. Both are sourced, not run.
 Both need repo secrets `DUPLO_HOST` and `DUPLO_TOKEN`. By default the build fetches the host SDK feed from
 `DUPLO_HOST`, so it must be reachable from CI — a real platform, not `localhost`. With the repository variable
 `DUPLO_SDK_VERSIONS` set, `extension-ci.yml` builds one bundle per listed SDK version from the package feed
-and needs the host only to deploy. `release.yml` still needs the host, plus `CONSOLE_API_KEY` and the signing,
-license and role values inside DuploCloud's organizations. [Releasing extensions](releasing-extensions.md) has
-the full list.
+and needs the host only to deploy. `release.yml` still needs the host, plus `CONSOLE_API_KEY`, the `CONSOLE_TEAM`
+variable outside DuploCloud's organizations, and the signing, license and role values inside them.
+[Releasing extensions](releasing-extensions.md) has the full list.
 
 It is your repo: commit `extensions/` and push. `dist/`, `node_modules/`, and `backend/sdk-packages/` are
 gitignored, and `.env` is never committed.
