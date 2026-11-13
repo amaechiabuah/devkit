@@ -268,9 +268,75 @@ OBFUSCATE=0
 OBFUSCATE_PROPS=(-p:DuploObfuscate=false)
 OBF_TARGETS="$DIR/backend/Directory.Build.targets"
 trap 'rm -rf "$BASELINE" 2>/dev/null || true' EXIT
+# project_refs <csproj>: the projects it references, one absolute path per line. An Include is written with either
+# separator and, when relative, is relative to the csproj's directory. The directory part is resolved on disk so a
+# ../ segment compares against backend/ by location; one that does not exist is left as written for dotnet to report.
+# The file is read as one line first, since an element with several attributes puts Include on its own line, and
+# XML comments are dropped so a reference left commented out is not read. An Include that holds an MSBuild property,
+# a wildcard or a list has no directory on disk as written, so it is printed as written, with no prefix, and the
+# caller reads it as outside.
+project_refs() {
+  local csproj="$1" dir ref
+  dir="$(cd "$(dirname "$csproj")" && pwd -P)"
+  { tr '\n' ' ' < "$csproj" 2>/dev/null | sed -E 's/<!--([^-]|-[^-])*-->//g' \
+      | grep -oE '<ProjectReference[^>]*Include="[^"]+"' || true; } \
+    | sed -E 's/.*Include="([^"]+)".*/\1/' | tr '\\' '/' \
+    | while IFS= read -r ref; do
+        case "$ref" in
+          *'$('*|*'*'*|*'?'*|*';'*) printf '%s\n' "$ref"; continue ;;
+          /*) ;;
+          *) ref="$dir/$ref" ;;
+        esac
+        [ -d "$(dirname "$ref")" ] && ref="$(cd "$(dirname "$ref")" && pwd -P)/$(basename "$ref")"
+        printf '%s\n' "$ref"
+      done
+}
+# targets_above <csproj>: the Directory.Build.targets MSBuild would import for it instead of the one dropped at
+# backend/, if any: the nearest one from the project's own directory up to, but not including, backend/.
+targets_above() {
+  local d; d="$(dirname "$1")"
+  while [ "$d" != "$BACKEND_ROOT" ] && [ "${d#"$BACKEND_ROOT"/}" != "$d" ]; do
+    [ -f "$d/Directory.Build.targets" ] && { printf '%s\n' "$d/Directory.Build.targets"; return; }
+    d="$(dirname "$d")"
+  done
+}
+# check_refs <csproj>: walks its references and theirs, appending to $unprotected each one that would publish plain:
+# a project outside backend/, or one inside whose own Directory.Build.targets replaces the dropped import. A project
+# already walked is skipped, so a reference cycle ends the walk.
+check_refs() {
+  local from="$1" ref above
+  case "$seen" in *"|$from|"*) return ;; esac
+  seen="$seen|$from|"
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+    case "$ref" in
+      "$BACKEND_ROOT"/*)
+        above="$(targets_above "$ref")"
+        if [ -n "$above" ]; then unprotected="$unprotected  $(basename "$from") -> $ref, which imports backend/${above#"$BACKEND_ROOT"/} instead"$'\n'
+        else check_refs "$ref"; fi ;;
+      *) unprotected="$unprotected  $(basename "$from") -> $ref"$'\n' ;;
+    esac
+  done < <(project_refs "$from")
+}
 if [ -n "${ARMDOT_LICENSE_FILE_PATH:-}" ]; then
   ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' build/ArmDot.Obfuscation.props)"
   [ -n "$ARMDOT_VERSION" ] || { echo "ERROR: no ArmDotEngineVersion in build/ArmDot.Obfuscation.props" >&2; exit 1; }
+  # Only a project that imports the targets file dropped below is obfuscated, so a referenced project outside backend/,
+  # or one whose own Directory.Build.targets shadows the dropped file, publishes plain into a bundle whose manifest
+  # says obfuscated. Refuse that rather than overclaim. Every reference reachable from the entry project is checked.
+  BACKEND_ROOT="$(cd "$DIR/backend" && pwd -P)"
+  unprotected=""; seen=""
+  check_refs "$(cd "$(dirname "$CSPROJ")" && pwd -P)/$(basename "$CSPROJ")"
+  if [ -n "$unprotected" ]; then
+    echo "ERROR: a licensed build obfuscates only the projects under $DIR/backend/ that import its Directory.Build.targets," >&2
+    echo "       and these references lead to projects that do not:" >&2
+    printf '%s' "$unprotected" >&2
+    echo "  Their assemblies would ship plain in a bundle stamped as obfuscated. Move each project into its own folder" >&2
+    echo "  under backend/, add that folder to the entry project's DefaultItemExcludes so its sources are not compiled" >&2
+    echo "  twice, and keep no Directory.Build.targets between it and backend/. Or unset ARMDOT_LICENSE_FILE_PATH to" >&2
+    echo "  build without obfuscation." >&2
+    exit 1
+  fi
   # A file identical to the template is this script's own leftover from a killed build, so it is replaced.
   # Anything else is the extension's own and is never overwritten.
   if [ -e "$OBF_TARGETS" ] && ! cmp -s build/Directory.Build.targets.template "$OBF_TARGETS"; then
