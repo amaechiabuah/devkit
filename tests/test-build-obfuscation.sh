@@ -33,11 +33,13 @@ EOF
 # dotnet: records each call's argv on one line, and on a publish writes the output the script reads next. The
 # baseline publish leaves one host-provided DLL and the extension publish leaves that one plus its own, so the
 # bundle ships exactly the extension's DLL. Each line also says whether Directory.Build.targets sat beside the
-# project at publish time, since an obfuscation flag without that import would stamp a bundle ArmDot never touched.
+# project at publish time, since an obfuscation flag without that import would stamp a bundle ArmDot never touched,
+# and a copy of that file is kept, since the script removes it before the build ends.
 # DOTNET_FAIL_EXT=1 makes the extension publish fail, to exercise cleanup on the failure path.
 cat > "$TMP/bin/dotnet" <<EOF
 #!/usr/bin/env bash
 echo "dotnet \$* targets=\$([ -f Directory.Build.targets ] && echo yes || echo no)" >> "$TMP/calls/dotnet"
+[ -f Directory.Build.targets ] && cp Directory.Build.targets "$TMP/calls/Directory.Build.targets"
 out=""; prev=""
 for a in "\$@"; do [ "\$prev" = -o ] && out=\$a; prev=\$a; done
 [ -n "\$out" ] || exit 0
@@ -64,7 +66,7 @@ ARMDOT_VERSION="$(sed -nE 's/.*<ArmDotEngineVersion>([^<]+)<.*/\1/p' build/ArmDo
 EXT="samples/.test-build-obfuscation"
 # RUN_FROM=<dir> runs the script from that directory instead of the repo root, to test relative license paths.
 run_build() {
-  rm -rf "$EXT" "$TMP/manifest.json"; : > "$TMP/calls/dotnet"
+  rm -rf "$EXT" "$TMP/manifest.json" "$TMP/calls/Directory.Build.targets"; : > "$TMP/calls/dotnet"
   cp -R samples/helloworld "$EXT"
   rm -rf "$EXT/dist" "$EXT/backend/obj" "$EXT/backend/bin" "$EXT/frontend/node_modules" "$EXT/frontend/dist"
   [ -n "${PRESET_TARGETS:-}" ] && echo "$PRESET_TARGETS" > "$EXT/backend/Directory.Build.targets"
@@ -97,6 +99,19 @@ want="-p:DuploObfuscate=true -p:ArmDotLicenseFile=$TMP/lic.key -p:DuploDevkitBui
 
 t "licensed build: Directory.Build.targets sits beside the csproj while the extension publishes"
 grep 'publish Duplo.Extension.HelloWorld.csproj' "$TMP/calls/dotnet" | grep -q 'targets=yes' && ok || bad "$(cat "$TMP/calls/dotnet")"
+
+# MSBuild imports only the nearest Directory.Build.targets, so the dropped file has to chain to the one above
+# backend/ itself, or an extension's own build logic goes missing for the licensed build only. The stubbed dotnet
+# never evaluates it, so this reads the file as dropped: the parent import first, found from the extension root up,
+# with no DuploObfuscate condition on it.
+t "licensed build: the dropped Directory.Build.targets imports the next one above backend/, unconditionally"
+parent="$(grep -n "GetPathOfFileAbove('Directory.Build.targets', '\$(MSBuildThisFileDirectory)../')" "$TMP/calls/Directory.Build.targets" \
+  | head -1 | cut -d: -f1)"
+armdot="$(grep -n 'ArmDot.Obfuscation.targets' "$TMP/calls/Directory.Build.targets" | head -1 | cut -d: -f1)"
+if [ -n "$parent" ] && [ -n "$armdot" ] && [ "$parent" -lt "$armdot" ] \
+   && grep -q '<Import Project="$(DuploParentBuildTargets)" Condition="'"'"'$(DuploParentBuildTargets)'"'"' != '"''"'" />' "$TMP/calls/Directory.Build.targets" \
+   && ! grep '<Import Project="$(DuploParentBuildTargets)"' "$TMP/calls/Directory.Build.targets" | grep -q DuploObfuscate; then ok
+else bad "$(cat "$TMP/calls/Directory.Build.targets" 2>&1)"; fi
 
 t "plain build: no Directory.Build.targets beside the csproj while the extension publishes"
 run_build
