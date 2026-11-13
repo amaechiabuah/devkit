@@ -98,6 +98,20 @@ if in_readme "docker compose stop duplo-ai-studio" \
     && in_readme 'The rebuild has to differ in content'
 then ok; else bad "README lacks the stop, disable-the-row, restart or fixed-rebuild steps"; fi
 
+# The agent API checks a bearer token when CCA_API_AUTH_TOKEN is set and accepts every caller when it is not, so the
+# devkit has to mint one. The studio reads the same value as Agent__ApiAuthToken through its env_file.
+t "run.sh mints Agent__ApiAuthToken once and --reset blanks it"
+if grep -qF '[ -n "$(getenv Agent__ApiAuthToken)" ] || setenv Agent__ApiAuthToken "$(openssl rand -hex 32)"' run.sh \
+    && awk '/^if \[ "\$RESET" = 1 \]; then$/{f=1} f&&/^  done$/{exit} f' run.sh | grep -qw Agent__ApiAuthToken; then ok
+else bad "run.sh does not mint Agent__ApiAuthToken, or --reset keeps it"; fi
+
+t ".env.example lists Agent__ApiAuthToken for run.sh to fill"
+if grep -qx 'Agent__ApiAuthToken=' .env.example; then ok; else bad "no Agent__ApiAuthToken= line"; fi
+
+t "nothing still says the agent API has no authentication"
+STALE="$(grep -lE 'API has no authentication|has no authentication and its exec' docker-compose.yml docs/*.md README.md 2>/dev/null | tr '\n' ' ')"
+if [ -z "$STALE" ]; then ok; else bad "stale in: $STALE"; fi
+
 echo
 t "run.sh generates MONGO_ROOT_PASSWORD once and blanks it on --reset"
 grep -qE 'getenv MONGO_ROOT_PASSWORD\)" \] \|\| setenv MONGO_ROOT_PASSWORD "\$\(openssl rand' run.sh \
@@ -274,6 +288,12 @@ if mode == "set":
     out("agent publishes no host port", not agent.get("ports"), agent.get("ports"))
     mports = svc.get("mongo", {}).get("ports") or []
     out("mongo publishes on loopback only", bool(mports) and all(p.get("host_ip") == "127.0.0.1" for p in mports), mports)
+    xterm = svc.get("xterm", {})
+    xports = xterm.get("ports") or []
+    out("xterm publishes on loopback only", bool(xports) and all(p.get("host_ip") == "127.0.0.1" for p in xports), xports)
+    xenv = xterm.get("environment") or {}
+    out("xterm allows only the portal origins on UI_PORT and sets no CORS_ORIGIN",
+        xenv.get("ALLOWED_ORIGINS") == "http://localhost:4321,http://127.0.0.1:4321" and "CORS_ORIGIN" not in xenv, xenv)
     senv = studio.get("environment") or {}
     out("studio calls the installer on the compose network", senv.get("Extensions__InstallerUrl") == "http://installer:8080",
         senv.get("Extensions__InstallerUrl"))
@@ -284,12 +304,21 @@ if mode == "set":
         senv.get("MongoDB__ConnectionString") == "mongodb://authuser:fixture-mongo@mongo:27017/?retryWrites=false",
         senv.get("MongoDB__ConnectionString"))
     out("installer never receives the mongo password", unset("MONGO_ROOT_PASSWORD"), env.get("MONGO_ROOT_PASSWORD"))
+    aenv = agent.get("environment") or {}
+    out("agent enforces the API token from .env", aenv.get("CCA_API_AUTH_TOKEN") == "fixture-agent-token",
+        aenv.get("CCA_API_AUTH_TOKEN"))
+    out("studio sends the same API token", senv.get("Agent__ApiAuthToken") == "fixture-agent-token",
+        senv.get("Agent__ApiAuthToken"))
+    out("installer receives no agent API token", "Agent__ApiAuthToken" not in env and "CCA_API_AUTH_TOKEN" not in env, env.keys())
 else:
     out("EXTENSIONS_ENABLED defaults to true", env.get("EXTENSIONS_ENABLED") == "true", env.get("EXTENSIONS_ENABLED"))
     out("EXTENSIONS_SOURCE defaults to customer", env.get("EXTENSIONS_SOURCE") == "customer", env.get("EXTENSIONS_SOURCE"))
     for k in ("LICENSE_SERVER_URL", "URL_ROUTE_URL", "CHANNELS_BASE_URL", "CHANNELS_BUCKET", "EXTENSIONS_EXCLUDE",
               "EXTENSIONS_ENROLLMENT_ID"):
         out("%s stays unset by default" % k, unset(k), env.get(k))
+    xenv = svc.get("xterm", {}).get("environment") or {}
+    out("xterm origins default to the unoffset portal port", xenv.get("ALLOWED_ORIGINS") == "http://localhost:4200,http://127.0.0.1:4200",
+        xenv.get("ALLOWED_ORIGINS"))
 ' "$1"
   }
 
@@ -305,8 +334,8 @@ else:
     done
   }
 
-  if J="$(render INSTALLER_TAG=fixture-tag STUDIO_TAG=studio-fixture Authentication__JwtSharedSecret=fixture-secret \
-        Licensing__Token=fixture-license 'EXTENSIONS_EXCLUDE=["a.b"]' LICENSE_SERVER_URL=https://license.example \
+  if J="$(render INSTALLER_TAG=fixture-tag STUDIO_TAG=studio-fixture UI_PORT=4321 Authentication__JwtSharedSecret=fixture-secret \
+        Agent__ApiAuthToken=fixture-agent-token Licensing__Token=fixture-license 'EXTENSIONS_EXCLUDE=["a.b"]' LICENSE_SERVER_URL=https://license.example \
         ANTHROPIC_API_KEY=sk-fixture AWS_SECRET_ACCESS_KEY=aws-fixture Authentication__LocalAdminPassword=pw \
         Encryption__MasterKey=mk MONGO_ROOT_PASSWORD=fixture-mongo)"; then
     tally < <(printf '%s' "$J" | check set)
