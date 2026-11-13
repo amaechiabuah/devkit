@@ -684,7 +684,7 @@ if [ "$RESET" = 1 ]; then
   for k in Authentication__LocalAdminEmail Authentication__LocalAdminPassword Authentication__SuperUsers \
            DEVKIT_MODEL ANTHROPIC_API_KEY AWS_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
            CLAUDE_MODEL CLAUDE_EXTRA_MODELS "${GATEWAY_KEYS[@]}" "${SUBSCRIPTION_KEYS[@]}" \
-           Encryption__MasterKey Authentication__JwtSharedSecret MONGO_ROOT_PASSWORD DUPLO_ADMIN_TOKEN EXTENSION_DEV_WORKSPACE_ID \
+           Encryption__MasterKey Authentication__JwtSharedSecret MONGO_ROOT_PASSWORD Agent__ApiAuthToken DUPLO_ADMIN_TOKEN EXTENSION_DEV_WORKSPACE_ID \
            EXTENSION_DEV_PERMSET_ID EXTENSION_DEV_PERMSETGROUP_ID \
            QDRANT_PROVIDER_ID QDRANT_SCOPE_ID QDRANT_COLLECTION_ID; do
     setenv "$k" ""
@@ -1052,6 +1052,8 @@ setenv AIStudio__IsMasterDisabled true
 [ -n "$(getenv Authentication__JwtSharedSecret)" ] || setenv Authentication__JwtSharedSecret "$(openssl rand -hex 32)"
 [ -n "$(getenv MONGO_ROOT_PASSWORD)" ] || refuse_old_mongo_volume
 [ -n "$(getenv MONGO_ROOT_PASSWORD)" ] || setenv MONGO_ROOT_PASSWORD "$(openssl rand -hex 32)"
+# The studio sends this as a bearer on every agent call and the agent rejects any call without it. Both read .env.
+[ -n "$(getenv Agent__ApiAuthToken)" ] || setenv Agent__ApiAuthToken "$(openssl rand -hex 32)"
 
 if [ "$MODEL" = anthropic ]; then
   KEY="$(resolve "$F_ANTHROPIC" ANTHROPIC_API_KEY 'Anthropic API key' secret)"

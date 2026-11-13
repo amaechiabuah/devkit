@@ -67,7 +67,8 @@ On an EC2 host the provider prompt first probes whether the instance role can ac
    [configuration.md § Licensing](configuration.md#licensing). This is where a run can wait on you: the
    license server emails the address a link, and the run polls for up to 2 minutes after it is clicked.
 6. Resolves password and LLM provider: flag, then `.env`, then prompt.
-7. Generates `Encryption__MasterKey`, `Authentication__JwtSharedSecret` and `MONGO_ROOT_PASSWORD` once, if unset.
+7. Generates `Encryption__MasterKey`, `Authentication__JwtSharedSecret`, `MONGO_ROOT_PASSWORD` and `Agent__ApiAuthToken`
+   once, if unset.
    A run that would generate the mongo password over a data volume initialised before the key existed stops
    instead, since the database would not know the new password: `--reset` recreates the database, or
    `MONGO_ROOT_PASSWORD=authpass` in `.env` keeps it.
@@ -128,7 +129,7 @@ combine.
 `--reset` blanks these keys, then sets up fresh: `Authentication__LocalAdminEmail`,
 `Authentication__LocalAdminPassword`, `Authentication__SuperUsers`, `DEVKIT_MODEL`, `ANTHROPIC_API_KEY`,
 `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `Encryption__MasterKey`,
-`Authentication__JwtSharedSecret`, `MONGO_ROOT_PASSWORD`, `DUPLO_ADMIN_TOKEN`, `EXTENSION_DEV_WORKSPACE_ID`,
+`Authentication__JwtSharedSecret`, `MONGO_ROOT_PASSWORD`, `Agent__ApiAuthToken`, `DUPLO_ADMIN_TOKEN`, `EXTENSION_DEV_WORKSPACE_ID`,
 `EXTENSION_DEV_PERMSET_ID`, `EXTENSION_DEV_PERMSETGROUP_ID`, `QDRANT_PROVIDER_ID`, `QDRANT_SCOPE_ID`,
 `QDRANT_COLLECTION_ID`.
 
@@ -209,9 +210,9 @@ dev-kit URL used by upgrades. Both are sourced, not run.
 Both need repo secrets `DUPLO_HOST` and `DUPLO_TOKEN`. By default the build fetches the host SDK feed from
 `DUPLO_HOST`, so it must be reachable from CI — a real platform, not `localhost`. With the repository variable
 `DUPLO_SDK_VERSIONS` set, `extension-ci.yml` builds one bundle per listed SDK version from the package feed
-and needs the host only to deploy. `release.yml` still needs the host, plus `CONSOLE_API_KEY` and the signing,
-license and role values inside DuploCloud's organizations. [Releasing extensions](releasing-extensions.md) has
-the full list.
+and needs the host only to deploy. `release.yml` still needs the host, plus `CONSOLE_API_KEY`, the `CONSOLE_TEAM`
+variable outside DuploCloud's organizations, and the signing, license and role values inside them.
+[Releasing extensions](releasing-extensions.md) has the full list.
 
 It is your repo: commit `extensions/` and push. `dist/`, `node_modules/`, and `backend/sdk-packages/` are
 gitignored, and `.env` is never committed.
