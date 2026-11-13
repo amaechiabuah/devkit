@@ -11,14 +11,16 @@ services:
     image: mongo:7.0.14
     restart: unless-stopped
     ports:
-      # Bound to 127.0.0.1 deliberately: the root credentials below are fixed and public, and the dev kit
-      # is documented as running on EC2 hosts, so a bare "27017:27017" would hand full read/write on every
-      # database to anything that can reach the host. The studio reaches mongo in-network at mongo:27017.
-      # The loopback port stays published so mongosh and Compass work from the host.
+      # Bound to 127.0.0.1 deliberately: the dev kit is documented as running on EC2 hosts, so a bare
+      # "27017:27017" would hand full read/write on every database to anything that can reach the host.
+      # The studio reaches mongo in-network at mongo:27017. The loopback port stays published so mongosh
+      # and Compass work from the host.
       - "127.0.0.1:${MONGO_PORT:-27017}:27017"
     environment:
+      # run.sh generates the password once into .env. Mongo applies it only when it initialises an empty
+      # data volume, so changing it later needs ./run.sh --reset.
       - MONGO_INITDB_ROOT_USERNAME=authuser
-      - MONGO_INITDB_ROOT_PASSWORD=authpass
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
       - MONGO_INITDB_DATABASE=auth-service
     volumes:
       # loaded_extensions records live here → previously-loaded extensions are replayed on restart.
@@ -73,7 +75,7 @@ services:
     env_file:
       - ./.env
     environment:
-      - MongoDB__ConnectionString=mongodb://authuser:authpass@mongo:27017/?retryWrites=false
+      - MongoDB__ConnectionString=mongodb://authuser:${MONGO_ROOT_PASSWORD}@mongo:27017/?retryWrites=false
       - MongoDB__DatabaseName=duplo-ai-helpdesk
       - ASPNETCORE_URLS=http://+:60021
       # Published-image paths (Dockerfile.core stages resources at /app; SDK feed + extension-studio dir).
